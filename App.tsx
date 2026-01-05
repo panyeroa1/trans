@@ -95,11 +95,13 @@ const App: React.FC = () => {
   // Settings State
   const [audioSource, setAudioSource] = useState<AudioSource>(AudioSource.MIC);
   const [webhookUrl, setWebhookUrl] = useState<string>(() => localStorage.getItem('transcribe_webhook_url') || '');
+  const [translationWebhookUrl, setTranslationWebhookUrl] = useState<string>(() => localStorage.getItem('translate_webhook_url') || '');
   const [translationEnabled, setTranslationEnabled] = useState(false);
   const [targetLanguage, setTargetLanguage] = useState("English");
   const [showTranscription, setShowTranscription] = useState(true);
+  const [latestTranslation, setLatestTranslation] = useState('');
   
-  const [buttonPosition, setButtonPosition] = useState({ x: window.innerWidth / 2 - 110, y: window.innerHeight / 2 + 50 });
+  const [buttonPosition, setButtonPosition] = useState({ x: window.innerWidth / 2 - 150, y: window.innerHeight / 2 + 50 });
   const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
 
   const audioServiceRef = useRef(new AudioService());
@@ -111,17 +113,24 @@ const App: React.FC = () => {
     localStorage.setItem('transcribe_webhook_url', webhookUrl);
   }, [webhookUrl]);
 
-  const pushToWebhook = async (text: string, emotion: string, speaker: string) => {
-    if (!webhookUrl) return;
-    let targetEndpoint = webhookUrl.replace(/\/+$/, '') + '/transcription';
-    const payload = { text, emotion, speaker, timestamp: new Date().toISOString() };
+  useEffect(() => {
+    localStorage.setItem('translate_webhook_url', translationWebhookUrl);
+  }, [translationWebhookUrl]);
+
+  const pushToWebhook = async (text: string, emotion: string, speaker: string, type: 'transcription' | 'translation') => {
+    const url = type === 'translation' ? translationWebhookUrl : webhookUrl;
+    if (!url) return;
+    
+    let targetEndpoint = url.replace(/\/+$/, '') + (type === 'translation' ? '/translation' : '/transcription');
+    const payload = { text, emotion, speaker, type, timestamp: new Date().toISOString(), language: type === 'translation' ? targetLanguage : 'Source' };
+    
     try {
       await fetch(targetEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-    } catch (e) { console.error('Webhook push failed:', e); }
+    } catch (e) { console.error(`Webhook push failed for ${type}:`, e); }
   };
 
   const parseTranscription = (rawText: string) => {
@@ -145,10 +154,13 @@ const App: React.FC = () => {
     return { speaker, emotion, cleanText: text.trim() };
   };
 
-  const handleStartTranscription = async (source: AudioSource) => {
+  const handleStartTranscription = async (source: AudioSource, translate: boolean = false) => {
     setIsLoading(true);
     setError(null);
     setSegments([]);
+    setTranslationEnabled(translate);
+    setLatestTranslation('');
+    
     try {
       const stream = await audioServiceRef.current.getStream(source);
       setActiveStream(stream);
@@ -156,8 +168,14 @@ const App: React.FC = () => {
         onTranscription: (text, isFinal) => {
           const { speaker, emotion, cleanText } = parseTranscription(text);
           if (!cleanText) return;
+          
+          if (translate) {
+            setLatestTranslation(cleanText);
+          }
+
           setCurrentSpeaker(speaker);
           setCurrentEmotion(emotion);
+          
           const newSegment: TranscriptionSegment = {
             id: Math.random().toString(36).substring(2, 9),
             text: cleanText,
@@ -165,12 +183,16 @@ const App: React.FC = () => {
             emotion,
             isNew: true
           };
+          
           setSegments(prev => [...prev, newSegment].slice(-8));
+          
           if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
           highlightTimeoutRef.current = setTimeout(() => {
             setSegments(prev => prev.map(s => s.id === newSegment.id ? { ...s, isNew: false } : s));
           }, 1200);
-          pushToWebhook(cleanText, emotion, speaker);
+
+          pushToWebhook(cleanText, emotion, speaker, translate ? 'translation' : 'transcription');
+
           if (transcriptionTimeoutRef.current) clearTimeout(transcriptionTimeoutRef.current);
           transcriptionTimeoutRef.current = setTimeout(() => {
             setSegments([]);
@@ -179,7 +201,7 @@ const App: React.FC = () => {
         },
         onError: (err) => { setError(err); handleStopTranscription(); },
         onClose: () => { handleStopTranscription(); }
-      }, { enabled: translationEnabled, targetLanguage });
+      }, { enabled: translate, targetLanguage });
       setIsStreaming(true);
     } catch (err: any) {
       setError(err.message || "Capture failed.");
@@ -249,8 +271,11 @@ const App: React.FC = () => {
           setTargetLanguage={setTargetLanguage}
           webhookUrl={webhookUrl}
           setWebhookUrl={setWebhookUrl}
+          translationWebhookUrl={translationWebhookUrl}
+          setTranslationWebhookUrl={setTranslationWebhookUrl}
           showTranscription={showTranscription}
           setShowTranscription={setShowTranscription}
+          latestTranslation={latestTranslation}
         />
       </div>
 

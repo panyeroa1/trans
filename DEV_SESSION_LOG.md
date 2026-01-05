@@ -41,3 +41,14 @@
 - **Scope boundaries**: `App.tsx`.
 - **Files changed**: `App.tsx`, `DEV_SESSION_LOG.md`.
 - **Results**: The transcription now feels more dynamic and expressive by subtly altering the appearance of text based on the detected emotional context of the speaker.
+
+# Session Log: 20250524-164500
+
+- **Start timestamp**: 2025-05-24 16:45:00
+- **Objective(s)**: 
+    - Split main action button into 'Speak' (Transcription) and 'Listen' (Translation).
+    - 'Listen' button directly initiates translation mode without needing to enter settings.
+    - Redesign button as a 3-segment pill: [ Speak ] | [ Listen ] | [ ⚙️ ].
+- **Scope boundaries**: `SpeakNowButton.tsx`, `App.tsx`.
+- **Files changed**: `components/SpeakNowButton.tsx`, `App.tsx`, `DEV_SESSION_LOG.md`.
+- **Results**: Improved UX with one-click access to translation mode. The UI maintains its high-fidelity aesthetic with smooth transitions and clear visual distinction between modes.

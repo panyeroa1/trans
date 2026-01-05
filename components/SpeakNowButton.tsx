@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { AudioSource } from '../services/audioService';
 
 interface SpeakNowButtonProps {
-  onStart: (source: AudioSource) => void;
+  onStart: (source: AudioSource, translate?: boolean) => void;
   onStop: () => void;
   isStreaming: boolean;
   isLoading: boolean;
@@ -19,13 +19,22 @@ interface SpeakNowButtonProps {
   setTargetLanguage: (lang: string) => void;
   webhookUrl: string;
   setWebhookUrl: (url: string) => void;
+  translationWebhookUrl: string;
+  setTranslationWebhookUrl: (url: string) => void;
   showTranscription: boolean;
   setShowTranscription: (val: boolean) => void;
+  latestTranslation: string;
 }
 
 const LANGUAGES = [
-  "English", "Spanish", "French", "German", "Chinese", "Japanese", "Korean", "Tagalog", "Russian", "Arabic"
-];
+  "English", "Spanish", "French", "German", "Chinese", "Japanese", "Korean", "Russian", "Arabic", "Portuguese", "Italian", "Hindi",
+  // Dutch & Dialects
+  "Dutch (Netherlands)", "Dutch (Belgium/Flemish)", "Afrikaans",
+  // Philippines & Dialects
+  "Tagalog (Filipino)", "Cebuano", "Ilocano", "Hiligaynon", "Waray-Waray", "Kapampangan", "Bikol", "Pangasinan", "Maranao", "Maguindanao", "Chavacano",
+  // Cameroon & Dialects
+  "Cameroonian Pidgin English", "French (Cameroon)", "English (Cameroon)", "Ewondo", "Duala", "Basaa", "Bamileke", "Fulfulde (Cameroon)"
+].sort();
 
 const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({ 
   onStart, 
@@ -43,8 +52,11 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
   setTargetLanguage,
   webhookUrl,
   setWebhookUrl,
+  translationWebhookUrl,
+  setTranslationWebhookUrl,
   showTranscription,
-  setShowTranscription
+  setShowTranscription,
+  latestTranslation
 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -144,14 +156,6 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
     }
   };
 
-  const toggleStreaming = () => {
-    if (isStreaming) {
-      onStop();
-    } else {
-      onStart(audioSource);
-    }
-  };
-
   return (
     <>
       {/* Draggable Main Button Container */}
@@ -161,9 +165,9 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
         style={{ left: position.x, top: position.y }}
         onMouseDown={onMouseDown}
       >
-        <div className="relative flex items-center h-[48px]">
+        <div className="relative flex items-center h-[52px]">
           {isStreaming ? (
-            <div className="flex bg-red-600/90 rounded-full items-center overflow-hidden w-[260px] h-[48px] shadow-2xl border border-white/10 backdrop-blur-xl transition-all duration-300">
+            <div className="flex bg-red-600/90 rounded-full items-center overflow-hidden w-[280px] h-full shadow-[0_20px_50px_rgba(220,38,38,0.3)] border border-white/10 backdrop-blur-xl transition-all duration-300">
               <button
                 onClick={onStop}
                 className="px-6 h-full text-white font-black transition-all flex items-center justify-center space-x-2 cursor-pointer drag-handle active:scale-95 group"
@@ -181,21 +185,33 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
               </div>
             </div>
           ) : (
-            <div className="flex h-[48px] w-[220px] shadow-2xl rounded-full overflow-visible border border-white/5 bg-zinc-900/40 backdrop-blur-xl">
-              {/* LEFT: Speak */}
+            <div className="flex h-full w-[310px] shadow-2xl rounded-full overflow-visible border border-white/10 bg-zinc-900/60 backdrop-blur-2xl">
+              {/* LEFT: Speak (Transcription) */}
               <button
                 disabled={isLoading}
-                onClick={toggleStreaming}
-                className={`flex-1 px-5 py-3 ${isLoading ? 'bg-zinc-700/50' : 'bg-lime-500/95 hover:bg-lime-400'} text-black font-black rounded-l-full transition-all flex items-center justify-center space-x-2 cursor-move drag-handle active:scale-[0.98] group`}
+                onClick={() => onStart(audioSource, false)}
+                className={`flex-1 px-4 ${isLoading ? 'bg-zinc-700/50' : 'bg-lime-500 hover:bg-lime-400'} text-black font-black rounded-l-full transition-all flex items-center justify-center space-x-1.5 cursor-move drag-handle active:scale-[0.98] group`}
               >
                 {isLoading ? (
-                  <div className="animate-spin h-4 w-4 border-2 border-black border-t-transparent rounded-full" />
+                  <div className="animate-spin h-3.5 w-3.5 border-2 border-black border-t-transparent rounded-full" />
                 ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 shrink-0 group-hover:scale-110 transition-transform" viewBox="0 0 20 20" fill="currentColor">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 shrink-0 group-hover:scale-110 transition-transform" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
                   </svg>
                 )}
-                <span className="text-[13px] uppercase tracking-tighter truncate">Speak</span>
+                <span className="text-[11px] uppercase tracking-tighter truncate">Speak</span>
+              </button>
+
+              {/* MIDDLE: Listen (Translation) */}
+              <button
+                disabled={isLoading}
+                onClick={() => onStart(audioSource, true)}
+                className={`flex-1 px-4 ${isLoading ? 'bg-zinc-700/50' : 'bg-cyan-500 hover:bg-cyan-400'} text-black font-black border-l border-white/20 transition-all flex items-center justify-center space-x-1.5 cursor-move drag-handle active:scale-[0.98] group`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 shrink-0 group-hover:scale-110 transition-transform" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
+                </svg>
+                <span className="text-[11px] uppercase tracking-tighter truncate">Listen</span>
               </button>
 
               {/* RIGHT: Settings Icon */}
@@ -224,7 +240,7 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
 
       {/* Right Sidebar */}
       <div className={`fixed top-0 right-0 h-full w-80 bg-zinc-950/95 border-l border-white/10 shadow-[-20px_0_60px_rgba(0,0,0,0.8)] backdrop-blur-3xl z-[100] transform transition-transform duration-500 ease-out p-8 overflow-y-auto ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-        <div className="flex items-center justify-between mb-10">
+        <div className="flex items-center justify-between mb-8">
           <h3 className="text-[11px] uppercase tracking-[0.2em] font-black text-lime-500 flex items-center">
             <span className="w-1.5 h-1.5 rounded-full bg-lime-500 mr-2" /> Configuration
           </h3>
@@ -238,10 +254,10 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
           </button>
         </div>
 
-        <div className="space-y-10">
+        <div className="space-y-8">
           {/* Audio Source */}
           <section>
-            <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black mb-4 block">Audio Input Source</label>
+            <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black mb-3 block">Audio Input Source</label>
             <div className="grid grid-cols-2 gap-2">
               {[
                 { id: AudioSource.MIC, label: 'Microphone', icon: '🎤' },
@@ -252,9 +268,9 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
                 <button
                   key={src.id}
                   onClick={() => setAudioSource(src.id)}
-                  className={`flex flex-col items-center justify-center p-4 rounded-2xl text-[10px] font-bold border transition-all gap-2 ${audioSource === src.id ? 'bg-lime-500/10 border-lime-500 text-lime-500 shadow-lg shadow-lime-500/10' : 'bg-white/5 border-white/5 text-zinc-400 hover:bg-white/10 hover:border-white/10'}`}
+                  className={`flex flex-col items-center justify-center p-3 rounded-xl text-[10px] font-bold border transition-all gap-1 ${audioSource === src.id ? 'bg-lime-500/10 border-lime-500 text-lime-500 shadow-lg shadow-lime-500/10' : 'bg-white/5 border-white/5 text-zinc-400 hover:bg-white/10 hover:border-white/10'}`}
                 >
-                  <span className="text-lg">{src.icon}</span>
+                  <span className="text-base">{src.icon}</span>
                   {src.label}
                 </button>
               ))}
@@ -262,9 +278,9 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
           </section>
 
           {/* Display Mode */}
-          <section className="pt-8 border-t border-white/5">
-            <div className="flex items-center justify-between mb-4">
-              <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black">Show Transcription Overlay</label>
+          <section className="pt-6 border-t border-white/5">
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black">Show Overlay</label>
               <button 
                 onClick={() => setShowTranscription(!showTranscription)}
                 className={`w-10 h-5 rounded-full transition-all relative ${showTranscription ? 'bg-lime-500' : 'bg-zinc-700'}`}
@@ -274,61 +290,67 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
             </div>
           </section>
 
-          {/* Translation Mode */}
-          <section className="pt-8 border-t border-white/5">
-            <div className="flex items-center justify-between mb-4">
-              <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black">Translation Mode</label>
-              <button 
-                onClick={() => setTranslationEnabled(!translationEnabled)}
-                className={`w-10 h-5 rounded-full transition-all relative ${translationEnabled ? 'bg-lime-500' : 'bg-zinc-700'}`}
-              >
-                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-all ${translationEnabled ? 'left-5.5' : 'left-0.5'}`} />
-              </button>
-            </div>
-            {translationEnabled && (
-              <div className="animate-in slide-in-from-top-2 duration-300">
-                <p className="text-[9px] text-zinc-500 mb-2 font-bold uppercase tracking-tight">Target Language</p>
-                <div className="relative">
-                  <select 
-                    value={targetLanguage}
-                    onChange={(e) => setTargetLanguage(e.target.value)}
-                    className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-[12px] font-bold text-zinc-300 focus:outline-none focus:ring-2 focus:ring-lime-500/50 transition-all appearance-none cursor-pointer"
-                  >
-                    {LANGUAGES.map(lang => <option key={lang} value={lang}>{lang}</option>)}
-                  </select>
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </div>
+          {/* Translation Settings */}
+          <section className="pt-6 border-t border-white/5 space-y-4">
+            <h4 className="text-[10px] uppercase tracking-widest text-zinc-500 font-black flex items-center">
+              <span className="w-1 h-1 rounded-full bg-cyan-500 mr-2" /> Translation Engine
+            </h4>
+            
+            <div>
+              <label className="text-[9px] text-zinc-500 mb-1.5 font-bold uppercase tracking-tight block">Target Dialect / Language</label>
+              <div className="relative">
+                <select 
+                  value={targetLanguage}
+                  onChange={(e) => setTargetLanguage(e.target.value)}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-[12px] font-bold text-zinc-300 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all appearance-none cursor-pointer"
+                >
+                  {LANGUAGES.map(lang => <option key={lang} value={lang}>{lang}</option>)}
+                </select>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                 </div>
               </div>
-            )}
-          </section>
+            </div>
 
-          {/* Webhook Configuration */}
-          <section className="pt-8 border-t border-white/5">
-            <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black mb-4 block">Webhook Endpoint (API)</label>
-            <div className="relative">
+            <div>
+              <label className="text-[9px] text-zinc-500 mb-1.5 font-bold uppercase tracking-tight block">Translation Receiver (Webhook)</label>
               <input
                 type="text"
-                value={webhookUrl}
-                onChange={(e) => setWebhookUrl(e.target.value)}
-                placeholder="https://your-api.com/webhooks"
-                className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-[11px] font-mono text-lime-100 placeholder:text-zinc-700 focus:outline-none focus:ring-2 focus:ring-lime-500/50 transition-all"
+                value={translationWebhookUrl}
+                onChange={(e) => setTranslationWebhookUrl(e.target.value)}
+                placeholder="https://api.receiver.com/translate"
+                className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-[11px] font-mono text-cyan-100 placeholder:text-zinc-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all"
               />
-              <div className="mt-2 text-[9px] text-zinc-600 italic">
-                Logs will be POSTed here as JSON chunks.
+            </div>
+
+            <div>
+              <label className="text-[9px] text-zinc-500 mb-1.5 font-bold uppercase tracking-tight block">Translation Input Receiver (Live Box)</label>
+              <div className="w-full h-24 bg-black/60 border border-white/10 rounded-xl p-3 text-[11px] font-mono text-cyan-400/80 overflow-y-auto overflow-x-hidden leading-relaxed backdrop-blur-sm scrollbar-hide">
+                {latestTranslation || "Waiting for translation input..."}
               </div>
             </div>
           </section>
+
+          {/* Transcription Webhook */}
+          <section className="pt-6 border-t border-white/5">
+            <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black mb-3 block">Transcription Webhook</label>
+            <input
+              type="text"
+              value={webhookUrl}
+              onChange={(e) => setWebhookUrl(e.target.value)}
+              placeholder="https://api.receiver.com/transcribe"
+              className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-[11px] font-mono text-lime-100 placeholder:text-zinc-700 focus:outline-none focus:ring-2 focus:ring-lime-500/50 transition-all"
+            />
+          </section>
           
-          <div className="pt-10 flex flex-col gap-3">
+          <div className="pt-6">
             <button 
               onClick={() => setIsSidebarOpen(false)}
-              className="w-full py-4 bg-lime-500/10 hover:bg-lime-500/20 text-lime-500 text-[11px] uppercase tracking-[0.2em] font-black rounded-2xl transition-all border border-lime-500/20 shadow-lg shadow-lime-500/5"
+              className="w-full py-4 bg-zinc-800 hover:bg-zinc-700 text-white text-[11px] uppercase tracking-[0.2em] font-black rounded-2xl transition-all border border-white/5"
             >
-              Apply & Close
+              Close Settings
             </button>
           </div>
         </div>
