@@ -26,7 +26,7 @@ export class GeminiLiveService {
         config: {
           responseModalities: [Modality.AUDIO],
           inputAudioTranscription: {},
-          systemInstruction: "You are a transcription assistant. Your only job is to provide real-time transcription of the incoming audio. For every transcription segment, detect the speaker's emotion and prepend it in uppercase brackets. Categories: [JOYFUL], [ANGRY], [SAD], [NEUTRAL]. Example: '[JOYFUL] I am so happy to see you!'. Do not respond verbally.",
+          systemInstruction: "You are a professional real-time transcriptionist. Your task is to transcribe audio and identify speakers. For every segment, detect the speaker and prepend with a tag like [Speaker 0], [Speaker 1], etc. Also detect the emotion and prepend it in uppercase brackets like [JOYFUL], [ANGRY], [SAD], or [NEUTRAL]. Example: '[Speaker 0] [JOYFUL] Good morning!'. If the speaker changes, update the tag immediately. Keep transcription verbatim. Do not respond verbally or provide assistant-like commentary.",
         },
         callbacks: {
           onopen: () => {

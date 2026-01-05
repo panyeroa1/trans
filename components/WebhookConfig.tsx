@@ -1,13 +1,14 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 
 interface WebhookConfigProps {
   url: string;
   onUpdate: (url: string) => void;
   recentPayloads: any[];
+  status: 'idle' | 'sending' | 'success' | 'error';
 }
 
-const WebhookConfig: React.FC<WebhookConfigProps> = ({ url, onUpdate, recentPayloads }) => {
+const WebhookConfig: React.FC<WebhookConfigProps> = ({ url, onUpdate, recentPayloads, status }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [inputValue, setInputValue] = useState(url);
 
@@ -19,6 +20,15 @@ const WebhookConfig: React.FC<WebhookConfigProps> = ({ url, onUpdate, recentPayl
     }
     onUpdate(formattedUrl);
     setIsOpen(false);
+  };
+
+  const getStatusColor = () => {
+    switch (status) {
+      case 'sending': return 'bg-zinc-400';
+      case 'success': return 'bg-lime-500';
+      case 'error': return 'bg-red-500';
+      default: return 'bg-zinc-600';
+    }
   };
 
   return (
@@ -34,8 +44,8 @@ const WebhookConfig: React.FC<WebhookConfigProps> = ({ url, onUpdate, recentPayl
           </svg>
           {url && (
             <span className="absolute -top-1 -right-1 flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-lime-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-lime-500"></span>
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${getStatusColor().replace('bg-', 'bg-')}`}></span>
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${getStatusColor()}`}></span>
             </span>
           )}
         </div>
@@ -46,7 +56,7 @@ const WebhookConfig: React.FC<WebhookConfigProps> = ({ url, onUpdate, recentPayl
         <div className="absolute right-0 mt-2 w-96 bg-zinc-950 border border-white/10 rounded-xl shadow-2xl p-4 animate-in fade-in zoom-in-95 duration-200">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-white flex items-center">
-              <span className="w-2 h-2 bg-lime-500 rounded-full mr-2"></span>
+              <span className={`w-2 h-2 rounded-full mr-2 ${getStatusColor()}`}></span>
               Stream Exposure Point
             </h3>
             <span className="text-[10px] text-zinc-500 font-mono">ENDPOINT: /transcription</span>
@@ -68,7 +78,38 @@ const WebhookConfig: React.FC<WebhookConfigProps> = ({ url, onUpdate, recentPayl
               />
             </div>
 
-            <div className="flex justify-end space-x-2">
+            <div className="flex justify-end items-center space-x-2">
+              {/* Status Indicators */}
+              {status !== 'idle' && (
+                <div className={`flex items-center space-x-1.5 text-[10px] font-bold uppercase tracking-wider pr-2 animate-in fade-in slide-in-from-right-2 ${
+                  status === 'sending' ? 'text-zinc-400' : 
+                  status === 'success' ? 'text-lime-500' : 'text-red-500'
+                }`}>
+                  {status === 'sending' && (
+                    <>
+                      <div className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-pulse" />
+                      <span>Sending...</span>
+                    </>
+                  )}
+                  {status === 'success' && (
+                    <>
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span>Sent ✓</span>
+                    </>
+                  )}
+                  {status === 'error' && (
+                    <>
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      <span>Failed ✕</span>
+                    </>
+                  )}
+                </div>
+              )}
+              
               <button 
                 onClick={() => setIsOpen(false)}
                 className="px-4 py-2 text-xs text-zinc-500 hover:text-white transition-colors"
