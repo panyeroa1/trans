@@ -19,6 +19,8 @@ interface SpeakNowButtonProps {
   setTargetLanguage: (lang: string) => void;
   webhookUrl: string;
   setWebhookUrl: (url: string) => void;
+  showTranscription: boolean;
+  setShowTranscription: (val: boolean) => void;
 }
 
 const LANGUAGES = [
@@ -40,7 +42,9 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
   targetLanguage,
   setTargetLanguage,
   webhookUrl,
-  setWebhookUrl
+  setWebhookUrl,
+  showTranscription,
+  setShowTranscription
 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -254,6 +258,19 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
                   {src.label}
                 </button>
               ))}
+            </div>
+          </section>
+
+          {/* Display Mode */}
+          <section className="pt-8 border-t border-white/5">
+            <div className="flex items-center justify-between mb-4">
+              <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black">Show Transcription Overlay</label>
+              <button 
+                onClick={() => setShowTranscription(!showTranscription)}
+                className={`w-10 h-5 rounded-full transition-all relative ${showTranscription ? 'bg-lime-500' : 'bg-zinc-700'}`}
+              >
+                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-all ${showTranscription ? 'left-5.5' : 'left-0.5'}`} />
+              </button>
             </div>
           </section>
 

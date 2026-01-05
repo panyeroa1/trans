@@ -11,6 +11,13 @@ const EMOTION_COLORS: Record<string, string> = {
   'NEUTRAL': '#32CD32' // LimeGreen
 };
 
+const EMOTION_STYLES: Record<string, { fontSize: string, fontWeight: string, scale: string, letterSpacing: string }> = {
+  'JOYFUL': { fontSize: '19px', fontWeight: '400', scale: '1.08', letterSpacing: '0.02em' },
+  'ANGRY': { fontSize: '18px', fontWeight: '700', scale: '1.04', letterSpacing: '-0.01em' },
+  'SAD': { fontSize: '15px', fontWeight: '100', scale: '0.96', letterSpacing: '0.05em' },
+  'NEUTRAL': { fontSize: '16px', fontWeight: '100', scale: '1.0', letterSpacing: 'normal' }
+};
+
 const SPEAKER_COLORS = [
   '#32CD32', // Speaker 0 (Default Lime)
   '#FF00FF', // Speaker 1 (Magenta)
@@ -31,7 +38,8 @@ const TypewriterText: React.FC<{
   text: string; 
   color: string; 
   isNew: boolean;
-}> = ({ text, color, isNew }) => {
+  emotion: string;
+}> = ({ text, color, isNew, emotion }) => {
   const [displayedText, setDisplayedText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const timerRef = useRef<number | null>(null);
@@ -55,10 +63,20 @@ const TypewriterText: React.FC<{
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [text, displayedText]);
 
+  const style = EMOTION_STYLES[emotion] || EMOTION_STYLES.NEUTRAL;
+
   return (
     <p 
-      className={`font-helvetica-thin text-[16px] tracking-wide transition-all duration-300 ${isNew ? 'brightness-150' : ''}`}
-      style={{ color, textShadow: isNew ? `0 0 15px ${color}, 0 0 5px #000` : `0 0 5px rgba(0,0,0,0.8)` }}
+      className={`font-helvetica-thin tracking-wide transition-all duration-700 ease-out ${isNew ? 'brightness-150' : ''}`}
+      style={{ 
+        color, 
+        fontSize: style.fontSize,
+        fontWeight: style.fontWeight,
+        letterSpacing: style.letterSpacing,
+        transform: `scale(${style.scale})`,
+        transformOrigin: 'left center',
+        textShadow: isNew ? `0 0 15px ${color}, 0 0 5px #000` : `0 0 5px rgba(0,0,0,0.8)` 
+      }}
     >
       {displayedText}
       {isTyping && isNew && <span className="inline-block w-[2px] h-[14px] bg-white ml-0.5 animate-pulse" />}
@@ -79,6 +97,7 @@ const App: React.FC = () => {
   const [webhookUrl, setWebhookUrl] = useState<string>(() => localStorage.getItem('transcribe_webhook_url') || '');
   const [translationEnabled, setTranslationEnabled] = useState(false);
   const [targetLanguage, setTargetLanguage] = useState("English");
+  const [showTranscription, setShowTranscription] = useState(true);
   
   const [buttonPosition, setButtonPosition] = useState({ x: window.innerWidth / 2 - 110, y: window.innerHeight / 2 + 50 });
   const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
@@ -189,21 +208,28 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-transparent text-zinc-100 flex flex-col items-center justify-center p-4">
       {/* Subtitle Display */}
-      <div 
-        className={`fixed z-50 pointer-events-none flex justify-center items-center transition-opacity duration-500 ${segments.length > 0 ? 'opacity-100' : 'opacity-0'}`}
-        style={{ left: buttonPosition.x, top: buttonPosition.y - 180, width: '800px', transform: 'translateX(-40%)' }}
-      >
-        <div className="inline-flex flex-wrap justify-center items-center gap-x-3 gap-y-2 max-w-full bg-black/25 backdrop-blur-xl px-8 py-3 rounded-3xl border border-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.4)] transition-all duration-500 overflow-hidden">
-          {segments.map((seg, idx) => (
-            <div key={seg.id} className={`flex items-center space-x-2 transition-all duration-700 ease-out transform ${seg.isNew ? 'scale-105 translate-y-[-2px] opacity-100' : 'scale-100 translate-y-0 opacity-80'}`}>
-              {(idx === 0 || segments[idx-1].speaker !== seg.speaker) && (
-                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter shadow-sm flex-shrink-0" style={{ backgroundColor: SPEAKER_COLORS[getSpeakerIndex(seg.speaker)], color: '#000' }}>{seg.speaker}</span>
-              )}
-              <TypewriterText text={seg.text} color={EMOTION_COLORS[seg.emotion] || EMOTION_COLORS.NEUTRAL} isNew={seg.isNew} />
-            </div>
-          ))}
+      {showTranscription && (
+        <div 
+          className={`fixed z-50 pointer-events-none flex justify-center items-center transition-opacity duration-500 ${segments.length > 0 ? 'opacity-100' : 'opacity-0'}`}
+          style={{ left: buttonPosition.x, top: buttonPosition.y - 180, width: '800px', transform: 'translateX(-40%)' }}
+        >
+          <div className="inline-flex flex-wrap justify-center items-center gap-x-3 gap-y-2 max-w-full bg-black/25 backdrop-blur-xl px-8 py-3 rounded-3xl border border-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.4)] transition-all duration-500 overflow-hidden">
+            {segments.map((seg, idx) => (
+              <div key={seg.id} className={`flex items-center space-x-2 transition-all duration-700 ease-out transform ${seg.isNew ? 'scale-105 translate-y-[-2px] opacity-100' : 'scale-100 translate-y-0 opacity-80'}`}>
+                {(idx === 0 || segments[idx-1].speaker !== seg.speaker) && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter shadow-sm flex-shrink-0" style={{ backgroundColor: SPEAKER_COLORS[getSpeakerIndex(seg.speaker)], color: '#000' }}>{seg.speaker}</span>
+                )}
+                <TypewriterText 
+                  text={seg.text} 
+                  color={EMOTION_COLORS[seg.emotion] || EMOTION_COLORS.NEUTRAL} 
+                  isNew={seg.isNew} 
+                  emotion={seg.emotion}
+                />
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="fixed z-40">
         <SpeakNowButton 
@@ -223,6 +249,8 @@ const App: React.FC = () => {
           setTargetLanguage={setTargetLanguage}
           webhookUrl={webhookUrl}
           setWebhookUrl={setWebhookUrl}
+          showTranscription={showTranscription}
+          setShowTranscription={setShowTranscription}
         />
       </div>
 

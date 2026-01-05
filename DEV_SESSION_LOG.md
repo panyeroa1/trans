@@ -20,4 +20,24 @@
     - Implement smooth sidebar transitions and backdrop blur effects.
 - **Scope boundaries**: `SpeakNowButton.tsx`.
 - **Files changed**: `components/SpeakNowButton.tsx`, `DEV_SESSION_LOG.md`.
-- **Results**: The application feels more robust and professional. The sidebar allows for easier configuration without cluttering the main viewport area near the draggable button.
+- **Results**: The application feels more professional. The sidebar allows for easier configuration without cluttering the main viewport area near the draggable button.
+
+# Session Log: 20250524-140000
+
+- **Start timestamp**: 2025-05-24 14:00:00
+- **Objective(s)**: 
+    - Add "Show Transcription Overlay" toggle to the sidebar.
+    - Implement conditional rendering of the subtitle box based on this setting.
+- **Scope boundaries**: `App.tsx`, `SpeakNowButton.tsx`.
+- **Files changed**: `App.tsx`, `components/SpeakNowButton.tsx`, `DEV_SESSION_LOG.md`.
+- **Results**: Users can now choose to hide the transcription from the UI while still potentially having it sent to webhooks or translated in the background.
+
+# Session Log: 20250524-153000
+
+- **Start timestamp**: 2025-05-24 15:30:00
+- **Objective(s)**: 
+    - Visualize emotion intensity through subtle typographic variations (size, weight, scale).
+    - Map JOYFUL to larger, brighter text; ANGRY to bold, intense text; SAD to thin, airy text.
+- **Scope boundaries**: `App.tsx`.
+- **Files changed**: `App.tsx`, `DEV_SESSION_LOG.md`.
+- **Results**: The transcription now feels more dynamic and expressive by subtly altering the appearance of text based on the detected emotional context of the speaker.
