@@ -27,14 +27,31 @@ interface SpeakNowButtonProps {
 }
 
 const LANGUAGES = [
-  "English", "Spanish", "French", "German", "Chinese", "Japanese", "Korean", "Russian", "Arabic", "Portuguese", "Italian", "Hindi",
-  // Dutch & Dialects
-  "Dutch (Netherlands)", "Dutch (Belgium/Flemish)", "Afrikaans",
-  // Philippines & Dialects
-  "Tagalog (Filipino)", "Cebuano", "Ilocano", "Hiligaynon", "Waray-Waray", "Kapampangan", "Bikol", "Pangasinan", "Maranao", "Maguindanao", "Chavacano",
-  // Cameroon & Dialects
-  "Cameroonian Pidgin English", "French (Cameroon)", "English (Cameroon)", "Ewondo", "Duala", "Basaa", "Bamileke", "Fulfulde (Cameroon)"
-].sort();
+  // GLOBAL MAJOR
+  "English (US)", "English (UK)", "English (Australia)", "English (Canada)", "English (India)",
+  "Spanish (Spain)", "Spanish (Mexico)", "Spanish (Latin America)", "Spanish (Argentina)",
+  "French (France)", "French (Canada)", "German (Germany)", "German (Austria)", "German (Switzerland)",
+  "Chinese (Mandarin/Simplified)", "Chinese (Cantonese/Traditional)", "Chinese (Taiwanese)",
+  "Japanese", "Korean", "Russian", "Arabic (Standard)", "Arabic (Egyptian)", "Arabic (Gulf)", "Arabic (Maghrebi)", "Arabic (Levantine)",
+  "Portuguese (Brazil)", "Portuguese (Portugal)", "Italian", "Hindi", "Bengali", "Punjabi", "Marathi", "Telugu", "Tamil", "Gujarati", "Urdu", "Kannada", "Odia", "Malayalam",
+  "Vietnamese", "Thai", "Indonesian", "Malay", "Turkish", "Persian (Farsi)", "Hebrew", "Polish", "Ukrainian", "Romanian", "Greek", "Czech", "Hungarian", "Swedish", "Norwegian", "Danish", "Finnish",
+  
+  // DUTCH & DIALECTS (Netherlands/Belgium)
+  "Dutch (Netherlands)", "Dutch (Noord-Holland)", "Dutch (Zuid-Holland)", "Dutch (Brabants)", "Dutch (Limburgs)", "Dutch (Gronings)", "Dutch (Twents)", "Dutch (Fries/Frisian)", "Dutch (Zeeuws)",
+  "Dutch (Belgium/Flemish)", "Dutch (Antwerps)", "Dutch (West-Vlaams)", "Afrikaans",
+  
+  // PHILIPPINES & DIALECTS
+  "Tagalog (Filipino)", "Cebuano (Bisaya)", "Ilocano", "Hiligaynon (Ilonggo)", "Waray-Waray", "Kapampangan", "Bikol (Central)", "Pangasinan", "Maranao", "Maguindanao", "Chavacano", "Tausug", "Kinaray-a", "Surigaonon", "Masbateño", "Ibanag", "Aklanon",
+  
+  // CAMEROON & DIALECTS
+  "Cameroonian Pidgin English", "French (Cameroon)", "English (Cameroon)", "Ewondo", "Duala", "Basaa", "Bamileke (Ghomala')", "Bamileke (Fe'fe')", "Fulfulde (Cameroon)", "Bulu", "Bakweri", "Medumba", "Kom", "Ejagham",
+  
+  // AFRICA GENERAL
+  "Swahili (Kenya/Tanzania)", "Amharic", "Yoruba", "Igbo", "Hausa", "Oromo", "Zulu", "Xhosa", "Shona", "Tigrinya", "Wolof", "Bambara", "Twi", "Lingala", "Luganda", "Somali",
+  
+  // OTHERS
+  "Maori", "Hawaiian", "Quechua", "Guarani", "Icelandic", "Irish (Gaelic)", "Welsh", "Basque", "Catalan", "Galician", "Slovak", "Slovenian", "Croatian", "Serbian", "Bulgarian", "Lithuanian", "Latvian", "Estonian", "Kazakh", "Uzbek", "Azerbaijani", "Georgian", "Armenian", "Mongolian", "Khmer", "Lao", "Burmese", "Sinhala", "Nepali", "Pashto"
+].sort((a, b) => a.localeCompare(b));
 
 const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({ 
   onStart, 
