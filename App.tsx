@@ -38,30 +38,35 @@ const TypewriterText: React.FC<{
   isNew: boolean;
 }> = ({ text, color, isNew }) => {
   const [displayedText, setDisplayedText] = useState('');
-  const [isComplete, setIsComplete] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    // Reset if the segment text changes significantly
-    if (text.length < displayedText.length) {
-      setDisplayedText('');
-    }
-
-    const reveal = () => {
-      if (displayedText.length < text.length) {
+    // If text prop is updated and we need to catch up
+    if (text.length > displayedText.length) {
+      setIsTyping(true);
+      
+      const reveal = () => {
         const distance = text.length - displayedText.length;
+        // If we are far behind, reveal more characters per frame
         const increment = distance > 10 ? 3 : 1;
+        const next = text.slice(0, displayedText.length + increment);
         
-        setDisplayedText(text.slice(0, displayedText.length + increment));
+        setDisplayedText(next);
         
-        const delay = distance > 5 ? 10 : 25;
-        timerRef.current = window.setTimeout(reveal, delay);
-      } else {
-        setIsComplete(true);
-      }
-    };
+        // If we've reached the end of the current available text, stop typing indicator
+        if (next.length === text.length) {
+          setIsTyping(false);
+        }
+      };
 
-    timerRef.current = window.setTimeout(reveal, 20);
+      const distance = text.length - displayedText.length;
+      // Speed adjustment: fast per character but as fast as per word 
+      const delay = distance > 5 ? 10 : 25;
+      timerRef.current = window.setTimeout(reveal, delay);
+    } else {
+      setIsTyping(false);
+    }
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
@@ -79,7 +84,8 @@ const TypewriterText: React.FC<{
       }}
     >
       {displayedText}
-      {!isComplete && isNew && (
+      {/* Visual cursor effect: only when actively typing and the segment is 'new' */}
+      {isTyping && isNew && (
         <span className="inline-block w-[2px] h-[14px] bg-white ml-0.5 animate-pulse" />
       )}
     </p>

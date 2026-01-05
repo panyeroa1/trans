@@ -41,3 +41,14 @@
 - **Scope boundaries**: `App.tsx`.
 - **Files changed**: `App.tsx`, `DEV_SESSION_LOG.md`.
 - **Results**: Subtitle container is now a tight, rounded pill that exactly fits the transcription segments with high transparency for a cleaner aesthetic.
+
+# Session Log: 20250524-004000
+
+- **Start timestamp**: 2025-05-24 00:40:00
+- **Objective(s)**: 
+    - Refine `TypewriterText` cursor visibility logic.
+    - Ensure cursor only appears when text is actively being added.
+    - Cursor disappears immediately when typing is complete or paused.
+- **Scope boundaries**: `App.tsx`.
+- **Files changed**: `App.tsx`, `DEV_SESSION_LOG.md`.
+- **Results**: Optimized `isTyping` state in `TypewriterText`. The blinking cursor now reacts precisely to stream progress, providing a cleaner "typing" feel.
