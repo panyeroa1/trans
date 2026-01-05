@@ -29,10 +29,10 @@ export class GeminiLiveService {
   ) {
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
     
-    let instruction = "You are a professional real-time transcriptionist. Your task is to transcribe audio and identify speakers. For every segment, detect the speaker and prepend with a tag like [Speaker 0], [Speaker 1], etc. Also detect the emotion and prepend it in uppercase brackets like [JOYFUL], [ANGRY], [SAD], or [NEUTRAL]. Example: '[Speaker 0] [JOYFUL] Good morning!'. If the speaker changes, update the tag immediately. Keep transcription verbatim. Do not respond verbally or provide assistant-like commentary.";
+    let instruction = "You are a professional real-time transcriptionist and speaker diarization expert. Your task is to transcribe audio and identify speakers. For every segment, detect the speaker and prepend with a tag like [Speaker 0], [Speaker 1], etc. Also detect the emotion and prepend it in uppercase brackets like [JOYFUL], [ANGRY], [SAD], or [NEUTRAL]. Example: '[Speaker 0] [JOYFUL] Good morning!'. If the speaker changes, update the tag immediately. Keep transcription verbatim.";
     
     if (translation.enabled) {
-      instruction += ` Additionally, you MUST translate everything into ${translation.targetLanguage}. Your output should be the translated text while maintaining the [Speaker N] and [EMOTION] tags.`;
+      instruction += ` Additionally, for every segment, you MUST provide the original source text followed by ' -> ' and its translation into ${translation.targetLanguage}. Format: [Speaker N] [EMOTION] Original verbatim text -> Translated text. Ensure the translation follows the source text after the arrow.`;
     }
 
     try {

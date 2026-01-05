@@ -1,6 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { AudioSource } from '../services/audioService';
+import { TranscriptionSegment } from '../App';
 
 interface SpeakNowButtonProps {
   onStart: (source: AudioSource, translate?: boolean) => void;
@@ -23,7 +24,8 @@ interface SpeakNowButtonProps {
   setTranslationWebhookUrl: (url: string) => void;
   showTranscription: boolean;
   setShowTranscription: (val: boolean) => void;
-  latestTranslation: string;
+  segments: TranscriptionSegment[];
+  cumulativeSource: string;
 }
 
 const LANGUAGES = [
@@ -50,7 +52,7 @@ const LANGUAGES = [
   "Swahili (Kenya/Tanzania)", "Amharic", "Yoruba", "Igbo", "Hausa", "Oromo", "Zulu", "Xhosa", "Shona", "Tigrinya", "Wolof", "Bambara", "Twi", "Lingala", "Luganda", "Somali",
   
   // OTHERS
-  "Maori", "Hawaiian", "Quechua", "Guarani", "Icelandic", "Irish (Gaelic)", "Welsh", "Basque", "Catalan", "Galician", "Slovak", "Slovenian", "Croatian", "Serbian", "Bulgarian", "Lithuanian", "Latvian", "Estonian", "Kazakh", "Uzbek", "Azerbaijani", "Georgian", "Armenian", "Mongolian", "Khmer", "Lao", "Burmese", "Sinhala", "Nepali", "Pashto"
+  "Maori", "Hawaiian", "Quechua", "Guarani", "Icelandic", "Irish (Gaelic)", "Welsh", "Basque", "Catalan", "Galician", "Slovak", "Slovenian", "Croatian", "Serbian", "Bulgarian", "Lithuanian", "Latvian", "Estonian", "Kazakh", "Uzbek", "Azerbaijani", "Georgia", "Armenian", "Mongolian", "Khmer", "Lao", "Burmese", "Sinhala", "Nepali", "Pashto"
 ].sort((a, b) => a.localeCompare(b));
 
 const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({ 
@@ -73,7 +75,8 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
   setTranslationWebhookUrl,
   showTranscription,
   setShowTranscription,
-  latestTranslation
+  segments,
+  cumulativeSource
 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -83,6 +86,13 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
   const dragRef = useRef<{ offsetX: number, offsetY: number } | null>(null);
   const buttonContainerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const liveBoxEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (liveBoxEndRef.current) {
+      liveBoxEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [segments, cumulativeSource]);
 
   useEffect(() => {
     let audioCtx: AudioContext | null = null;
@@ -342,10 +352,44 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
               />
             </div>
 
-            <div>
-              <label className="text-[9px] text-zinc-500 mb-1.5 font-bold uppercase tracking-tight block">Translation Input Receiver (Live Box)</label>
-              <div className="w-full h-24 bg-black/60 border border-white/10 rounded-xl p-3 text-[11px] font-mono text-cyan-400/80 overflow-y-auto overflow-x-hidden leading-relaxed backdrop-blur-sm scrollbar-hide">
-                {latestTranslation || "Waiting for translation input..."}
+            <div className="space-y-4">
+              <div className="flex flex-col">
+                <label className="text-[9px] text-zinc-500 mb-1.5 font-bold uppercase tracking-tight block">Full Session Transcript (Source)</label>
+                <div className="w-full h-32 bg-lime-950/20 border border-lime-500/10 rounded-xl p-3 text-[10px] font-mono overflow-y-auto leading-relaxed backdrop-blur-sm text-lime-400/70 scrollbar-hide">
+                  {cumulativeSource || <span className="text-zinc-700 italic">No audio detected yet...</span>}
+                  <div ref={liveBoxEndRef} />
+                </div>
+              </div>
+
+              <div className="flex flex-col">
+                <label className="text-[9px] text-zinc-500 mb-1.5 font-bold uppercase tracking-tight block">Audit Log (Source & Translation)</label>
+                <div className="w-full h-56 bg-black/60 border border-white/10 rounded-xl p-3 text-[10px] font-mono overflow-y-auto leading-relaxed backdrop-blur-sm scrollbar-hide space-y-4">
+                  {segments.length === 0 ? (
+                    <div className="text-zinc-600 italic">Waiting for active turn...</div>
+                  ) : (
+                    segments.map((seg) => (
+                      <div key={seg.id} className="bg-zinc-900/40 p-2.5 rounded-lg border border-white/5 shadow-sm">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[8px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">{seg.speaker}</span>
+                          <span className="text-[8px] text-zinc-600 font-bold uppercase tracking-widest">{seg.emotion}</span>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex flex-col">
+                            <span className="text-[7px] text-lime-500/40 font-black uppercase mb-0.5">Source Audio</span>
+                            <span className="text-zinc-400 italic leading-snug">{seg.text}</span>
+                          </div>
+                          {seg.translation && (
+                            <div className="flex flex-col pt-1.5 border-t border-white/5">
+                              <span className="text-[7px] text-cyan-400 font-black uppercase mb-0.5">Translated ({targetLanguage})</span>
+                              <span className="text-white font-bold leading-snug">{seg.translation}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  <div ref={liveBoxEndRef} />
+                </div>
               </div>
             </div>
           </section>

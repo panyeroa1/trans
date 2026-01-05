@@ -26,9 +26,10 @@ const SPEAKER_COLORS = [
   '#FFA500', // Speaker 4 (Orange)
 ];
 
-interface TranscriptionSegment {
+export interface TranscriptionSegment {
   id: string;
   text: string;
+  translation?: string;
   speaker: string;
   emotion: string;
   isNew: boolean;
@@ -88,6 +89,7 @@ const App: React.FC = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [segments, setSegments] = useState<TranscriptionSegment[]>([]);
+  const [cumulativeSource, setCumulativeSource] = useState<string>("");
   const [currentSpeaker, setCurrentSpeaker] = useState('Speaker 0');
   const [currentEmotion, setCurrentEmotion] = useState('NEUTRAL');
   const [error, setError] = useState<string | null>(null);
@@ -97,9 +99,8 @@ const App: React.FC = () => {
   const [webhookUrl, setWebhookUrl] = useState<string>(() => localStorage.getItem('transcribe_webhook_url') || '');
   const [translationWebhookUrl, setTranslationWebhookUrl] = useState<string>(() => localStorage.getItem('translate_webhook_url') || '');
   const [translationEnabled, setTranslationEnabled] = useState(false);
-  const [targetLanguage, setTargetLanguage] = useState("English");
+  const [targetLanguage, setTargetLanguage] = useState("English (US)");
   const [showTranscription, setShowTranscription] = useState(true);
-  const [latestTranslation, setLatestTranslation] = useState('');
   
   const [buttonPosition, setButtonPosition] = useState({ x: window.innerWidth / 2 - 150, y: window.innerHeight / 2 + 50 });
   const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
@@ -117,12 +118,20 @@ const App: React.FC = () => {
     localStorage.setItem('translate_webhook_url', translationWebhookUrl);
   }, [translationWebhookUrl]);
 
-  const pushToWebhook = async (text: string, emotion: string, speaker: string, type: 'transcription' | 'translation') => {
+  const pushToWebhook = async (text: string, emotion: string, speaker: string, type: 'transcription' | 'translation', translation?: string) => {
     const url = type === 'translation' ? translationWebhookUrl : webhookUrl;
     if (!url) return;
     
     let targetEndpoint = url.replace(/\/+$/, '') + (type === 'translation' ? '/translation' : '/transcription');
-    const payload = { text, emotion, speaker, type, timestamp: new Date().toISOString(), language: type === 'translation' ? targetLanguage : 'Source' };
+    const payload = { 
+      text, 
+      translation,
+      emotion, 
+      speaker, 
+      type, 
+      timestamp: new Date().toISOString(), 
+      language: type === 'translation' ? targetLanguage : 'Source' 
+    };
     
     try {
       await fetch(targetEndpoint, {
@@ -151,53 +160,61 @@ const App: React.FC = () => {
         break;
       }
     }
-    return { speaker, emotion, cleanText: text.trim() };
+
+    let source = text.trim();
+    let translation = '';
+
+    if (translationEnabled && source.includes(' -> ')) {
+      const parts = source.split(' -> ');
+      source = parts[0].trim();
+      translation = parts[1].trim();
+    }
+
+    return { speaker, emotion, source, translation };
   };
 
   const handleStartTranscription = async (source: AudioSource, translate: boolean = false) => {
     setIsLoading(true);
     setError(null);
     setSegments([]);
+    setCumulativeSource("");
     setTranslationEnabled(translate);
-    setLatestTranslation('');
     
     try {
       const stream = await audioServiceRef.current.getStream(source);
       setActiveStream(stream);
       await geminiServiceRef.current.startStreaming(stream, {
         onTranscription: (text, isFinal) => {
-          const { speaker, emotion, cleanText } = parseTranscription(text);
-          if (!cleanText) return;
+          const { speaker, emotion, source: cleanSource, translation: cleanTranslation } = parseTranscription(text);
+          if (!cleanSource) return;
           
-          if (translate) {
-            setLatestTranslation(cleanText);
-          }
-
           setCurrentSpeaker(speaker);
           setCurrentEmotion(emotion);
           
           const newSegment: TranscriptionSegment = {
             id: Math.random().toString(36).substring(2, 9),
-            text: cleanText,
+            text: cleanSource,
+            translation: translate ? cleanTranslation : undefined,
             speaker,
             emotion,
             isNew: true
           };
           
-          setSegments(prev => [...prev, newSegment].slice(-8));
+          setSegments(prev => [...prev, newSegment].slice(-40)); // Keep longer history for sidebar
+          setCumulativeSource(prev => prev + (prev ? " " : "") + cleanSource);
           
           if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
           highlightTimeoutRef.current = setTimeout(() => {
             setSegments(prev => prev.map(s => s.id === newSegment.id ? { ...s, isNew: false } : s));
           }, 1200);
 
-          pushToWebhook(cleanText, emotion, speaker, translate ? 'translation' : 'transcription');
+          pushToWebhook(cleanSource, emotion, speaker, translate ? 'translation' : 'transcription', cleanTranslation);
 
           if (transcriptionTimeoutRef.current) clearTimeout(transcriptionTimeoutRef.current);
           transcriptionTimeoutRef.current = setTimeout(() => {
             setSegments([]);
             setCurrentEmotion('NEUTRAL');
-          }, 8000);
+          }, 20000);
         },
         onError: (err) => { setError(err); handleStopTranscription(); },
         onClose: () => { handleStopTranscription(); }
@@ -216,6 +233,7 @@ const App: React.FC = () => {
     audioServiceRef.current.stop();
     setIsStreaming(false);
     setSegments([]);
+    setCumulativeSource("");
     setCurrentEmotion('NEUTRAL');
     setActiveStream(null);
     if (transcriptionTimeoutRef.current) clearTimeout(transcriptionTimeoutRef.current);
@@ -236,13 +254,13 @@ const App: React.FC = () => {
           style={{ left: buttonPosition.x, top: buttonPosition.y - 180, width: '800px', transform: 'translateX(-40%)' }}
         >
           <div className="inline-flex flex-wrap justify-center items-center gap-x-3 gap-y-2 max-w-full bg-black/25 backdrop-blur-xl px-8 py-3 rounded-3xl border border-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.4)] transition-all duration-500 overflow-hidden">
-            {segments.map((seg, idx) => (
+            {segments.slice(-5).map((seg, idx) => (
               <div key={seg.id} className={`flex items-center space-x-2 transition-all duration-700 ease-out transform ${seg.isNew ? 'scale-105 translate-y-[-2px] opacity-100' : 'scale-100 translate-y-0 opacity-80'}`}>
-                {(idx === 0 || segments[idx-1].speaker !== seg.speaker) && (
+                {(idx === 0 || segments.slice(-5)[idx-1].speaker !== seg.speaker) && (
                   <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter shadow-sm flex-shrink-0" style={{ backgroundColor: SPEAKER_COLORS[getSpeakerIndex(seg.speaker)], color: '#000' }}>{seg.speaker}</span>
                 )}
                 <TypewriterText 
-                  text={seg.text} 
+                  text={translationEnabled ? (seg.translation || seg.text) : seg.text} 
                   color={EMOTION_COLORS[seg.emotion] || EMOTION_COLORS.NEUTRAL} 
                   isNew={seg.isNew} 
                   emotion={seg.emotion}
@@ -275,7 +293,8 @@ const App: React.FC = () => {
           setTranslationWebhookUrl={setTranslationWebhookUrl}
           showTranscription={showTranscription}
           setShowTranscription={setShowTranscription}
-          latestTranslation={latestTranslation}
+          segments={segments}
+          cumulativeSource={cumulativeSource}
         />
       </div>
 
