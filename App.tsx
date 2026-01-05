@@ -1,7 +1,6 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import SpeakNowButton from './components/SpeakNowButton';
-import WebhookConfig from './components/WebhookConfig';
 import { AudioService, AudioSource } from './services/audioService';
 import { GeminiLiveService } from './services/geminiService';
 
@@ -28,10 +27,6 @@ interface TranscriptionSegment {
   isNew: boolean;
 }
 
-/**
- * Renders text character-by-character at a high speed to simulate 
- * professional videoke/karaoke subtitles while keeping up with word-stream speed.
- */
 const TypewriterText: React.FC<{ 
   text: string; 
   color: string; 
@@ -42,52 +37,31 @@ const TypewriterText: React.FC<{
   const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    // If text prop is updated and we need to catch up
     if (text.length > displayedText.length) {
       setIsTyping(true);
-      
       const reveal = () => {
         const distance = text.length - displayedText.length;
-        // If we are far behind, reveal more characters per frame
         const increment = distance > 10 ? 3 : 1;
         const next = text.slice(0, displayedText.length + increment);
-        
         setDisplayedText(next);
-        
-        // If we've reached the end of the current available text, stop typing indicator
-        if (next.length === text.length) {
-          setIsTyping(false);
-        }
+        if (next.length === text.length) setIsTyping(false);
       };
-
       const distance = text.length - displayedText.length;
-      // Speed adjustment: fast per character but as fast as per word 
       const delay = distance > 5 ? 10 : 25;
       timerRef.current = window.setTimeout(reveal, delay);
     } else {
       setIsTyping(false);
     }
-
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [text, displayedText]);
 
   return (
     <p 
       className={`font-helvetica-thin text-[16px] tracking-wide transition-all duration-300 ${isNew ? 'brightness-150' : ''}`}
-      style={{ 
-        color: color,
-        textShadow: isNew 
-          ? `0 0 15px ${color}, 0 0 5px #000` 
-          : `0 0 5px rgba(0,0,0,0.8)`
-      }}
+      style={{ color, textShadow: isNew ? `0 0 15px ${color}, 0 0 5px #000` : `0 0 5px rgba(0,0,0,0.8)` }}
     >
       {displayedText}
-      {/* Visual cursor effect: only when actively typing and the segment is 'new' */}
-      {isTyping && isNew && (
-        <span className="inline-block w-[2px] h-[14px] bg-white ml-0.5 animate-pulse" />
-      )}
+      {isTyping && isNew && <span className="inline-block w-[2px] h-[14px] bg-white ml-0.5 animate-pulse" />}
     </p>
   );
 };
@@ -99,10 +73,14 @@ const App: React.FC = () => {
   const [currentSpeaker, setCurrentSpeaker] = useState('Speaker 0');
   const [currentEmotion, setCurrentEmotion] = useState('NEUTRAL');
   const [error, setError] = useState<string | null>(null);
+  
+  // Settings State
+  const [audioSource, setAudioSource] = useState<AudioSource>(AudioSource.MIC);
   const [webhookUrl, setWebhookUrl] = useState<string>(() => localStorage.getItem('transcribe_webhook_url') || '');
-  const [webhookStatus, setWebhookStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
-  const [recentPayloads, setRecentPayloads] = useState<any[]>([]);
-  const [buttonPosition, setButtonPosition] = useState({ x: window.innerWidth / 2 - 100, y: window.innerHeight / 2 + 50 });
+  const [translationEnabled, setTranslationEnabled] = useState(false);
+  const [targetLanguage, setTargetLanguage] = useState("English");
+  
+  const [buttonPosition, setButtonPosition] = useState({ x: window.innerWidth / 2 - 110, y: window.innerHeight / 2 + 50 });
   const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
 
   const audioServiceRef = useRef(new AudioService());
@@ -116,51 +94,26 @@ const App: React.FC = () => {
 
   const pushToWebhook = async (text: string, emotion: string, speaker: string) => {
     if (!webhookUrl) return;
-    
-    let targetEndpoint = webhookUrl.replace(/\/+$/, '');
-    if (!targetEndpoint.endsWith('/transcription')) {
-      targetEndpoint += '/transcription';
-    }
-
-    const payload = {
-      text,
-      emotion,
-      speaker,
-      timestamp: new Date().toISOString(),
-      type: 'transcription_chunk',
-    };
-
-    setRecentPayloads(prev => [payload, ...prev].slice(0, 5));
-    setWebhookStatus('sending');
-    
+    let targetEndpoint = webhookUrl.replace(/\/+$/, '') + '/transcription';
+    const payload = { text, emotion, speaker, timestamp: new Date().toISOString() };
     try {
-      const response = await fetch(targetEndpoint, {
+      await fetch(targetEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (response.ok) {
-        setWebhookStatus('success');
-      } else {
-        setWebhookStatus('error');
-      }
-    } catch (e) {
-      console.error('Webhook push failed:', e);
-      setWebhookStatus('error');
-    }
+    } catch (e) { console.error('Webhook push failed:', e); }
   };
 
   const parseTranscription = (rawText: string) => {
     let text = rawText;
     let speaker = currentSpeaker;
     let emotion = currentEmotion;
-
     const speakerMatch = text.match(/\[Speaker (\d+)\]/i);
     if (speakerMatch) {
       speaker = `Speaker ${speakerMatch[1]}`;
       text = text.replace(speakerMatch[0], '');
     }
-
     const emotionTags = Object.keys(EMOTION_COLORS);
     for (const tag of emotionTags) {
       const pattern = `[${tag}]`;
@@ -170,7 +123,6 @@ const App: React.FC = () => {
         break;
       }
     }
-
     return { speaker, emotion, cleanText: text.trim() };
   };
 
@@ -178,19 +130,15 @@ const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
     setSegments([]);
-    
     try {
       const stream = await audioServiceRef.current.getStream(source);
       setActiveStream(stream);
-      
       await geminiServiceRef.current.startStreaming(stream, {
         onTranscription: (text, isFinal) => {
           const { speaker, emotion, cleanText } = parseTranscription(text);
           if (!cleanText) return;
-
           setCurrentSpeaker(speaker);
           setCurrentEmotion(emotion);
-
           const newSegment: TranscriptionSegment = {
             id: Math.random().toString(36).substring(2, 9),
             text: cleanText,
@@ -198,37 +146,24 @@ const App: React.FC = () => {
             emotion,
             isNew: true
           };
-
-          setSegments(prev => {
-            const next = [...prev, newSegment];
-            return next.slice(-8);
-          });
-
+          setSegments(prev => [...prev, newSegment].slice(-8));
           if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
           highlightTimeoutRef.current = setTimeout(() => {
             setSegments(prev => prev.map(s => s.id === newSegment.id ? { ...s, isNew: false } : s));
           }, 1200);
-
           pushToWebhook(cleanText, emotion, speaker);
-
           if (transcriptionTimeoutRef.current) clearTimeout(transcriptionTimeoutRef.current);
           transcriptionTimeoutRef.current = setTimeout(() => {
             setSegments([]);
             setCurrentEmotion('NEUTRAL');
           }, 8000);
         },
-        onError: (err) => {
-          setError(err);
-          handleStopTranscription();
-        },
-        onClose: () => {
-          handleStopTranscription();
-        }
-      });
-
+        onError: (err) => { setError(err); handleStopTranscription(); },
+        onClose: () => { handleStopTranscription(); }
+      }, { enabled: translationEnabled, targetLanguage });
       setIsStreaming(true);
     } catch (err: any) {
-      setError(err.message || "Failed to start capture.");
+      setError(err.message || "Capture failed.");
       handleStopTranscription();
     } finally {
       setIsLoading(false);
@@ -241,7 +176,6 @@ const App: React.FC = () => {
     setIsStreaming(false);
     setSegments([]);
     setCurrentEmotion('NEUTRAL');
-    setWebhookStatus('idle');
     setActiveStream(null);
     if (transcriptionTimeoutRef.current) clearTimeout(transcriptionTimeoutRef.current);
     if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
@@ -254,46 +188,18 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-transparent text-zinc-100 flex flex-col items-center justify-center p-4">
-      <WebhookConfig 
-        url={webhookUrl} 
-        onUpdate={setWebhookUrl} 
-        recentPayloads={recentPayloads} 
-        status={webhookStatus}
-      />
-      
-      {/* Transcription Output (Diarized, Segmented, Character-by-Character reveal) */}
+      {/* Subtitle Display */}
       <div 
         className={`fixed z-50 pointer-events-none flex justify-center items-center transition-opacity duration-500 ${segments.length > 0 ? 'opacity-100' : 'opacity-0'}`}
-        style={{ 
-          left: buttonPosition.x, 
-          top: buttonPosition.y - 180, 
-          width: '800px', 
-          transform: 'translateX(-40%)' 
-        }}
+        style={{ left: buttonPosition.x, top: buttonPosition.y - 180, width: '800px', transform: 'translateX(-40%)' }}
       >
         <div className="inline-flex flex-wrap justify-center items-center gap-x-3 gap-y-2 max-w-full bg-black/25 backdrop-blur-xl px-8 py-3 rounded-3xl border border-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.4)] transition-all duration-500 overflow-hidden">
           {segments.map((seg, idx) => (
-            <div 
-              key={seg.id}
-              className={`flex items-center space-x-2 transition-all duration-700 ease-out transform ${seg.isNew ? 'scale-105 translate-y-[-2px] opacity-100' : 'scale-100 translate-y-0 opacity-80'}`}
-            >
+            <div key={seg.id} className={`flex items-center space-x-2 transition-all duration-700 ease-out transform ${seg.isNew ? 'scale-105 translate-y-[-2px] opacity-100' : 'scale-100 translate-y-0 opacity-80'}`}>
               {(idx === 0 || segments[idx-1].speaker !== seg.speaker) && (
-                <span 
-                  className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter shadow-sm flex-shrink-0"
-                  style={{ 
-                    backgroundColor: SPEAKER_COLORS[getSpeakerIndex(seg.speaker)],
-                    color: '#000'
-                  }}
-                >
-                  {seg.speaker}
-                </span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter shadow-sm flex-shrink-0" style={{ backgroundColor: SPEAKER_COLORS[getSpeakerIndex(seg.speaker)], color: '#000' }}>{seg.speaker}</span>
               )}
-              
-              <TypewriterText 
-                text={seg.text} 
-                color={EMOTION_COLORS[seg.emotion] || EMOTION_COLORS.NEUTRAL} 
-                isNew={seg.isNew} 
-              />
+              <TypewriterText text={seg.text} color={EMOTION_COLORS[seg.emotion] || EMOTION_COLORS.NEUTRAL} isNew={seg.isNew} />
             </div>
           ))}
         </div>
@@ -308,6 +214,15 @@ const App: React.FC = () => {
           onPositionChange={setButtonPosition}
           initialPosition={buttonPosition}
           stream={activeStream}
+          // Settings Props
+          audioSource={audioSource}
+          setAudioSource={setAudioSource}
+          translationEnabled={translationEnabled}
+          setTranslationEnabled={setTranslationEnabled}
+          targetLanguage={targetLanguage}
+          setTargetLanguage={setTargetLanguage}
+          webhookUrl={webhookUrl}
+          setWebhookUrl={setWebhookUrl}
         />
       </div>
 
@@ -328,7 +243,7 @@ const App: React.FC = () => {
             <span className="relative inline-flex rounded-full h-2 w-2 bg-lime-500"></span>
           </div>
           <span className="text-[10px] uppercase tracking-widest font-black text-lime-500/80">
-            {currentSpeaker} • {currentEmotion}
+            {translationEnabled ? `Translating to ${targetLanguage}` : `${currentSpeaker} • ${currentEmotion}`}
           </span>
         </div>
       )}

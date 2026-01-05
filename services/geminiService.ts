@@ -8,6 +8,11 @@ export interface LiveTranscriptionCallbacks {
   onClose: () => void;
 }
 
+export interface TranslationConfig {
+  enabled: boolean;
+  targetLanguage: string;
+}
+
 export class GeminiLiveService {
   private ai: GoogleGenAI;
   private session: any = null;
@@ -17,16 +22,26 @@ export class GeminiLiveService {
     this.ai = new GoogleGenAI({ apiKey: (process.env.API_KEY as string) });
   }
 
-  async startStreaming(stream: MediaStream, callbacks: LiveTranscriptionCallbacks) {
+  async startStreaming(
+    stream: MediaStream, 
+    callbacks: LiveTranscriptionCallbacks, 
+    translation: TranslationConfig = { enabled: false, targetLanguage: 'English' }
+  ) {
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
     
+    let instruction = "You are a professional real-time transcriptionist. Your task is to transcribe audio and identify speakers. For every segment, detect the speaker and prepend with a tag like [Speaker 0], [Speaker 1], etc. Also detect the emotion and prepend it in uppercase brackets like [JOYFUL], [ANGRY], [SAD], or [NEUTRAL]. Example: '[Speaker 0] [JOYFUL] Good morning!'. If the speaker changes, update the tag immediately. Keep transcription verbatim. Do not respond verbally or provide assistant-like commentary.";
+    
+    if (translation.enabled) {
+      instruction += ` Additionally, you MUST translate everything into ${translation.targetLanguage}. Your output should be the translated text while maintaining the [Speaker N] and [EMOTION] tags.`;
+    }
+
     try {
       const sessionPromise = this.ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
         config: {
           responseModalities: [Modality.AUDIO],
           inputAudioTranscription: {},
-          systemInstruction: "You are a professional real-time transcriptionist. Your task is to transcribe audio and identify speakers. For every segment, detect the speaker and prepend with a tag like [Speaker 0], [Speaker 1], etc. Also detect the emotion and prepend it in uppercase brackets like [JOYFUL], [ANGRY], [SAD], or [NEUTRAL]. Example: '[Speaker 0] [JOYFUL] Good morning!'. If the speaker changes, update the tag immediately. Keep transcription verbatim. Do not respond verbally or provide assistant-like commentary.",
+          systemInstruction: instruction,
         },
         callbacks: {
           onopen: () => {
