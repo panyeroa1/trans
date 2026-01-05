@@ -5,15 +5,24 @@ import WebhookConfig from './components/WebhookConfig';
 import { AudioService, AudioSource } from './services/audioService';
 import { GeminiLiveService } from './services/geminiService';
 
+const EMOTION_COLORS: Record<string, string> = {
+  'JOYFUL': '#FFD700', // Gold/Yellow
+  'ANGRY': '#FF4500',  // OrangeRed
+  'SAD': '#1E90FF',    // DodgerBlue
+  'NEUTRAL': '#32CD32' // LimeGreen
+};
+
 const App: React.FC = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [transcription, setTranscription] = useState('');
+  const [currentEmotion, setCurrentEmotion] = useState('NEUTRAL');
   const [error, setError] = useState<string | null>(null);
   const [webhookUrl, setWebhookUrl] = useState<string>(() => localStorage.getItem('transcribe_webhook_url') || '');
   const [webhookStatus, setWebhookStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [recentPayloads, setRecentPayloads] = useState<any[]>([]);
   const [buttonPosition, setButtonPosition] = useState({ x: window.innerWidth / 2 - 100, y: window.innerHeight / 2 + 50 });
+  const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
 
   const audioServiceRef = useRef(new AudioService());
   const geminiServiceRef = useRef(new GeminiLiveService());
@@ -23,7 +32,7 @@ const App: React.FC = () => {
     localStorage.setItem('transcribe_webhook_url', webhookUrl);
   }, [webhookUrl]);
 
-  const pushToWebhook = async (text: string) => {
+  const pushToWebhook = async (text: string, emotion: string) => {
     if (!webhookUrl) return;
     
     let targetEndpoint = webhookUrl.replace(/\/+$/, '');
@@ -33,6 +42,7 @@ const App: React.FC = () => {
 
     const payload = {
       text,
+      emotion,
       timestamp: new Date().toISOString(),
       type: 'transcription_chunk',
       session_id: 'live_session_' + Date.now().toString(36)
@@ -63,11 +73,23 @@ const App: React.FC = () => {
     setError(null);
     try {
       const stream = await audioServiceRef.current.getStream(source);
+      setActiveStream(stream);
       
       await geminiServiceRef.current.startStreaming(stream, {
         onTranscription: (text, isFinal) => {
+          let cleanText = text;
+          let detectedEmotion = 'NEUTRAL';
+
+          // Extract emotion tag if present: [EMOTION] text
+          const emotionMatch = text.match(/^\[(JOYFUL|ANGRY|SAD|NEUTRAL)\]\s*(.*)/i);
+          if (emotionMatch) {
+            detectedEmotion = emotionMatch[1].toUpperCase();
+            cleanText = emotionMatch[2];
+            setCurrentEmotion(detectedEmotion);
+          }
+
           setTranscription(prev => {
-            const next = prev ? `${prev} ${text}` : text;
+            const next = prev ? `${prev} ${cleanText}` : cleanText;
             const words = next.split(' ');
             if (words.length > 15) {
               return words.slice(-12).join(' ');
@@ -75,11 +97,12 @@ const App: React.FC = () => {
             return next;
           });
 
-          pushToWebhook(text);
+          pushToWebhook(cleanText, detectedEmotion);
 
           if (transcriptionTimeoutRef.current) clearTimeout(transcriptionTimeoutRef.current);
           transcriptionTimeoutRef.current = setTimeout(() => {
             setTranscription('');
+            setCurrentEmotion('NEUTRAL');
           }, 5000);
         },
         onError: (err) => {
@@ -93,8 +116,15 @@ const App: React.FC = () => {
 
       setIsStreaming(true);
     } catch (err: any) {
-      setError(err.message || "Failed to start audio capture");
+      if (err.name === 'NotAllowedError') {
+        setError("Permission denied: Please grant access to your microphone or screen audio to continue.");
+      } else if (err.name === 'NotFoundError') {
+        setError("Audio device not found. Please check your hardware connections.");
+      } else {
+        setError(err.message || "An unexpected error occurred while starting audio capture.");
+      }
       console.error(err);
+      handleStopTranscription(); // Ensure everything is cleaned up
     } finally {
       setIsLoading(false);
     }
@@ -105,7 +135,9 @@ const App: React.FC = () => {
     audioServiceRef.current.stop();
     setIsStreaming(false);
     setTranscription('');
+    setCurrentEmotion('NEUTRAL');
     setWebhookStatus('idle');
+    setActiveStream(null);
   }, []);
 
   return (
@@ -116,7 +148,6 @@ const App: React.FC = () => {
         recentPayloads={recentPayloads} 
       />
       
-      {/* Floating Transcription Area: Dynamically positioned relative to the button */}
       <div 
         className="fixed z-50 pointer-events-none flex justify-center items-center h-[24px]"
         style={{ 
@@ -126,7 +157,10 @@ const App: React.FC = () => {
           transform: 'translateX(-25%)' 
         }}
       >
-        <p className="font-helvetica-thin text-[16px] text-[#32CD32] whitespace-nowrap tracking-widest drop-shadow-[0_0_8px_rgba(50,205,50,0.8)] animate-in fade-in duration-500">
+        <p 
+          className="font-helvetica-thin text-[16px] whitespace-nowrap tracking-widest drop-shadow-[0_0_8px_rgba(0,0,0,0.8)] animate-in fade-in duration-500 transition-colors"
+          style={{ color: EMOTION_COLORS[currentEmotion] || EMOTION_COLORS.NEUTRAL }}
+        >
           {transcription}
         </p>
       </div>
@@ -139,12 +173,22 @@ const App: React.FC = () => {
           isLoading={isLoading}
           onPositionChange={setButtonPosition}
           initialPosition={buttonPosition}
+          stream={activeStream}
         />
       </div>
 
       {error && (
-        <div className="fixed bottom-4 left-4 bg-red-500/80 border border-red-500/20 text-white p-4 rounded-xl text-xs font-mono z-50 backdrop-blur-md">
-          <span className="font-bold mr-2">[ERROR]</span> {error}
+        <div className="fixed bottom-4 left-4 bg-red-900/90 border border-red-500/50 text-white p-4 rounded-xl text-xs font-mono z-50 backdrop-blur-md shadow-2xl animate-in fade-in slide-in-from-left-4">
+          <div className="flex items-center space-x-3">
+            <span className="bg-red-500 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">ERROR</span>
+            <span className="max-w-xs">{error}</span>
+            <button 
+              onClick={() => setError(null)}
+              className="ml-2 text-white/50 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 

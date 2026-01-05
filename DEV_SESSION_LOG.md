@@ -2,22 +2,24 @@
 # Session Log: 20250523-143000
 ... (previous logs preserved)
 
-# Session Log: 20250523-190000
+# Session Log: 20250523-200000
 
-- **Start timestamp**: 2025-05-23 19:00:00
+- **Start timestamp**: 2025-05-23 20:00:00
 - **Objective(s)**: 
-    - Make the "Speak Now" button draggable and floating.
-    - Set the application background to transparent.
-- **Scope boundaries**: `App.tsx`, `components/SpeakNowButton.tsx`, `index.html`.
-- **Repo state**: Static centered button with dark background.
+    - Synchronize audio visualizer to actual input audio levels.
+    - Fix handling of "Permission denied" errors.
+    - Improve error UI feedback.
+- **Scope boundaries**: `App.tsx`, `components/SpeakNowButton.tsx`.
+- **Repo state**: Floating draggable button with basic visualizer.
 - **Files inspected**: `App.tsx`, `components/SpeakNowButton.tsx`.
-- **Assumptions / risks**: Browser environment supports mouse events for dragging; transparency is intended for the root container.
+- **Assumptions / risks**: AudioContext may be suspended by browser until user interaction.
 
 ---
-- **End timestamp**: 2025-05-23 19:15:00
+- **End timestamp**: 2025-05-23 20:15:00
 - **Summary of changes**: 
-    - Implemented custom dragging logic in `SpeakNowButton.tsx` using `fixed` positioning.
-    - Removed background colors and decorative elements in `App.tsx`.
-    - Updated `index.html` to ensure body transparency.
-- **Files changed**: `App.tsx`, `components/SpeakNowButton.tsx`, `index.html`.
-- **Results**: The button can now be moved freely, and the app background is clear.
+    - Refined FFT logic in `SpeakNowButton.tsx` for better bar mapping.
+    - Added `audioCtx.resume()` to handle browser suspension.
+    - Added specific `NotAllowedError` catch block in `App.tsx`.
+    - Added animated error notification UI.
+- **Files changed**: `App.tsx`, `components/SpeakNowButton.tsx`, `DEV_SESSION_LOG.md`.
+- **Results**: Visualizer is now highly responsive to audio. Permission errors are caught and communicated clearly to the user.
