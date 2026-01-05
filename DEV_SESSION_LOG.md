@@ -24,3 +24,14 @@
 - **Scope boundaries**: `App.tsx`, `SpeakNowButton.tsx`.
 - **Files changed**: `App.tsx`, `components/SpeakNowButton.tsx`, `DEV_SESSION_LOG.md`.
 - **Results**: Users now have a dedicated "Full Session Transcript" window in the settings sidebar, providing complete context of the source audio. The audit log below it is redesigned for high-fidelity monitoring of specific translation turns.
+
+# Session Log: 20250524-214500
+
+- **Start timestamp**: 2025-05-24 21:45:00
+- **Objective(s)**: 
+    - Implement turn-based aggregation in `App.tsx` to prevent segment fragmentation.
+    - Ensure 'Source Audio' in the Audit Log shows the full cumulative text for a turn as it's being built.
+    - Refine `cumulativeSource` updates to only trigger on finalized turns for cleaner history.
+- **Scope boundaries**: `App.tsx`, `DEV_SESSION_LOG.md`.
+- **Files changed**: `App.tsx`, `DEV_SESSION_LOG.md`.
+- **Results**: The Audit Log now feels much more "stable". Instead of flashing new entries for every sentence, it updates the current entry until the speaker finishes their turn, providing the "full transcript" requested.

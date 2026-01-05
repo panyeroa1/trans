@@ -33,6 +33,7 @@ export interface TranscriptionSegment {
   speaker: string;
   emotion: string;
   isNew: boolean;
+  isFinal: boolean;
 }
 
 const TypewriterText: React.FC<{ 
@@ -109,6 +110,7 @@ const App: React.FC = () => {
   const geminiServiceRef = useRef(new GeminiLiveService());
   const transcriptionTimeoutRef = useRef<any | null>(null);
   const highlightTimeoutRef = useRef<any | null>(null);
+  const currentTurnIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem('transcribe_webhook_url', webhookUrl);
@@ -179,6 +181,7 @@ const App: React.FC = () => {
     setSegments([]);
     setCumulativeSource("");
     setTranslationEnabled(translate);
+    currentTurnIdRef.current = null;
     
     try {
       const stream = await audioServiceRef.current.getStream(source);
@@ -191,30 +194,55 @@ const App: React.FC = () => {
           setCurrentSpeaker(speaker);
           setCurrentEmotion(emotion);
           
-          const newSegment: TranscriptionSegment = {
-            id: Math.random().toString(36).substring(2, 9),
-            text: cleanSource,
-            translation: translate ? cleanTranslation : undefined,
-            speaker,
-            emotion,
-            isNew: true
-          };
-          
-          setSegments(prev => [...prev, newSegment].slice(-40)); // Keep longer history for sidebar
-          setCumulativeSource(prev => prev + (prev ? " " : "") + cleanSource);
-          
+          setSegments(prev => {
+            const lastSeg = prev[prev.length - 1];
+            // If we have an active turn that isn't final, and it matches the current turn ID, update it
+            if (lastSeg && !lastSeg.isFinal && currentTurnIdRef.current === lastSeg.id) {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                ...lastSeg,
+                text: cleanSource,
+                translation: translate ? cleanTranslation : undefined,
+                emotion,
+                speaker,
+                isFinal,
+                isNew: true
+              };
+              return updated;
+            } else {
+              // Start a new turn
+              const newId = Math.random().toString(36).substring(2, 9);
+              currentTurnIdRef.current = newId;
+              const newSegment: TranscriptionSegment = {
+                id: newId,
+                text: cleanSource,
+                translation: translate ? cleanTranslation : undefined,
+                speaker,
+                emotion,
+                isNew: true,
+                isFinal
+              };
+              return [...prev, newSegment].slice(-40);
+            }
+          });
+
+          // Update cumulative source only on final turns to prevent stuttering/repetition in the "God-view"
+          if (isFinal) {
+            setCumulativeSource(prev => prev + (prev ? " " : "") + cleanSource);
+            pushToWebhook(cleanSource, emotion, speaker, translate ? 'translation' : 'transcription', cleanTranslation);
+            currentTurnIdRef.current = null; // Reset turn ID after finalization
+          }
+
           if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
           highlightTimeoutRef.current = setTimeout(() => {
-            setSegments(prev => prev.map(s => s.id === newSegment.id ? { ...s, isNew: false } : s));
+            setSegments(prev => prev.map(s => ({ ...s, isNew: false })));
           }, 1200);
-
-          pushToWebhook(cleanSource, emotion, speaker, translate ? 'translation' : 'transcription', cleanTranslation);
 
           if (transcriptionTimeoutRef.current) clearTimeout(transcriptionTimeoutRef.current);
           transcriptionTimeoutRef.current = setTimeout(() => {
             setSegments([]);
             setCurrentEmotion('NEUTRAL');
-          }, 20000);
+          }, 30000);
         },
         onError: (err) => { setError(err); handleStopTranscription(); },
         onClose: () => { handleStopTranscription(); }
@@ -236,6 +264,7 @@ const App: React.FC = () => {
     setCumulativeSource("");
     setCurrentEmotion('NEUTRAL');
     setActiveStream(null);
+    currentTurnIdRef.current = null;
     if (transcriptionTimeoutRef.current) clearTimeout(transcriptionTimeoutRef.current);
     if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
   }, []);
