@@ -6,68 +6,42 @@ export enum AudioSource {
 }
 
 /**
- * Advanced Text Segmentation Utility (EBURON.AI)
- * Analyzes linguistic patterns and pauses to identify natural thought boundaries.
+ * Advanced Text Segmentation Utility
+ * Analyzes linguistic patterns and pauses to find natural boundaries.
  */
 export class SmartSegmenter {
-  private static readonly CONJUNCTIONS = [
-    'and', 'but', 'or', 'so', 'because', 'although', 'if', 'when', 'which', 'that', 
-    'while', 'whereas', 'unless', 'since', 'as'
-  ];
-
-  private static readonly DISCOURSE_MARKERS = [
-    'however', 'therefore', 'moreover', 'nonetheless', 'furthermore', 
-    'consequently', 'instead', 'meanwhile', 'otherwise'
-  ];
-
-  private static readonly FILLERS = [
-    'um', 'uh', 'er', 'ah', 'like', 'literally', 'basically', 'actually', 'you know'
-  ];
-
-  private static readonly SENTENCE_ENDERS = /[.!?…]["'”]?\s*$/;
+  private static readonly CONJUNCTIONS = ['and', 'but', 'or', 'so', 'because', 'although', 'if', 'when', 'which', 'that'];
+  private static readonly SENTENCE_ENDERS = /[.!?]$/;
 
   /**
-   * Evaluates if a buffer should be flushed based on linguistic weight and pause duration.
+   * Evaluates if a buffer should be flushed to the database.
+   * @param text The current segment text.
+   * @param pauseDurationMs Time since last speech activity.
    */
   static shouldFlush(text: string, pauseDurationMs: number): boolean {
     const trimmed = text.trim();
-    if (trimmed.length < 20) return false;
+    if (trimmed.length < 15) return false; // Don't flush tiny fragments
 
-    const words = trimmed.toLowerCase().split(/\s+/);
-    const lastWord = words[words.length - 1].replace(/[^\w]/g, '');
-    const penultimateWord = words.length > 1 ? words[words.length - 2].replace(/[^\w]/g, '') : '';
-    
+    const words = trimmed.split(/\s+/);
+    const lastWord = words[words.length - 1].toLowerCase().replace(/[^\w]/g, '');
     const hasPunctuation = this.SENTENCE_ENDERS.test(trimmed);
-    const endsWithConjunction = this.CONJUNCTIONS.includes(lastWord);
-    const endsWithFiller = this.FILLERS.includes(lastWord);
-    const endsWithDiscourseMarker = this.DISCOURSE_MARKERS.includes(lastWord);
 
-    // 1. High Confidence Split: Clean punctuation + modest pause
-    // If the sentence is grammatically complete, 600ms is a clear thought break.
-    if (hasPunctuation && !endsWithFiller && pauseDurationMs > 600) return true;
+    // 1. Definite end: Punctuation + a meaningful pause
+    if (hasPunctuation && pauseDurationMs > 450) return true;
 
-    // 2. Mid-Thought Split Protection:
-    // If we just said "and", "but", or a filler, don't split unless the silence is massive.
-    if ((endsWithConjunction || endsWithFiller) && pauseDurationMs < 3000) return false;
+    // 2. Natural break: Long silence (2s+) regardless of grammar
+    if (pauseDurationMs > 2000) return true;
 
-    // 3. Discourse Shift:
-    // If the segment is getting long and we hit a discourse marker after a decent pause, 
-    // it's a good place to start a new record.
-    if (trimmed.length > 120 && endsWithDiscourseMarker && pauseDurationMs > 800) return true;
-
-    // 4. Natural Boundary:
-    // Long silence (2.5s+) is usually an intentional break regardless of grammar.
-    if (pauseDurationMs > 2500) return true;
-
-    // 5. Buffer Management:
-    // If the segment is becoming a "wall of text" (>280 chars), 
-    // we search for ANY logical break like a comma.
-    if (trimmed.length > 280) {
-      if (trimmed.includes(',') && pauseDurationMs > 1000) return true;
-      if (pauseDurationMs > 1500) return true;
+    // 3. Size-based: If buffer is long, look for a "safe" split point
+    if (trimmed.length > 180) {
+      // Avoid splitting in the middle of a connecting thought
+      if (this.CONJUNCTIONS.includes(lastWord)) return false;
       
-      // Absolute cap at 450 characters for system performance
-      if (trimmed.length > 450) return true;
+      // If we have a comma or just a long pause in a long sentence, it's safe
+      if (trimmed.includes(',') && pauseDurationMs > 800) return true;
+      
+      // Emergency cap to prevent massive single-row transcriptions
+      if (trimmed.length > 350) return true;
     }
 
     return false;
@@ -78,8 +52,9 @@ export class AudioService {
   private audioContext: AudioContext | null = null;
   private currentStream: MediaStream | null = null;
   
+  // VAD state for adaptive noise floor tracking
   private static noiseFloor = 0.005;
-  private static readonly ALPHA = 0.02;
+  private static readonly ALPHA = 0.02; // Smoothing factor for noise tracking
 
   async getStream(source: AudioSource): Promise<MediaStream> {
     this.stop();
@@ -129,6 +104,7 @@ export class AudioService {
 
     const sourceNode = this.audioContext.createMediaStreamSource(rawStream);
     
+    // EQ Chain for clarity
     const notchFilter = this.audioContext.createBiquadFilter();
     notchFilter.type = 'notch';
     notchFilter.frequency.value = 60;
@@ -175,6 +151,10 @@ export class AudioService {
     }
   }
 
+  /**
+   * Refined VAD with dynamic noise floor tracking.
+   * Adjusts sensitivity based on environment energy levels.
+   */
   static isVoiceActive(float32Array: Float32Array): boolean {
     let sum = 0;
     for (let i = 0; i < float32Array.length; i++) {
@@ -182,10 +162,13 @@ export class AudioService {
     }
     const rms = Math.sqrt(sum / float32Array.length);
     
+    // Update Noise Floor: If RMS is consistently low, track it as noise
     if (rms < this.noiseFloor * 1.8) {
       this.noiseFloor = (this.ALPHA * rms) + (1 - this.ALPHA) * this.noiseFloor;
     }
     
+    // Adaptive Threshold: Voice must be significantly higher than tracked noise floor
+    // Floor the threshold at 0.008 to prevent hyper-sensitivity in silent rooms
     const adaptiveThreshold = Math.max(0.008, this.noiseFloor * 2.2);
     
     return rms > adaptiveThreshold;
