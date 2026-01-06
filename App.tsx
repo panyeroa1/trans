@@ -36,10 +36,11 @@ const App: React.FC = () => {
   const lastActivityTimeRef = useRef<number>(Date.now());
   const silenceTimeoutRef = useRef<number | null>(null);
   const flushTimeoutRef = useRef<number | null>(null); 
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const [transPos, setTransPos] = useState(() => {
     const saved = localStorage.getItem('cs_trans_pos_v2');
-    return saved ? JSON.parse(saved) : { x: window.innerWidth / 2 - 400, y: window.innerHeight - 150 };
+    return saved ? JSON.parse(saved) : { x: window.innerWidth * 0.02, y: window.innerHeight - 280 };
   });
   const [settingsPos, setSettingsPos] = useState(() => {
     const saved = localStorage.getItem('cs_settings_pos_v2');
@@ -54,6 +55,15 @@ const App: React.FC = () => {
   useEffect(() => localStorage.setItem('cs_settings_pos_v2', JSON.stringify(settingsPos)), [settingsPos]);
   useEffect(() => localStorage.setItem('cs_control_pos_v2', JSON.stringify(controlPos)), [controlPos]);
   useEffect(() => localStorage.setItem('cs_learning_context', learningContext), [learningContext]);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  }, [segments, liveTurnText]);
 
   useEffect(() => {
     if (syncStatus.status === 'success') {
@@ -101,9 +111,8 @@ const App: React.FC = () => {
       segmentBufferRef.current = (segmentBufferRef.current + " " + trimmed).trim();
       let newDisplay = (displayBufferRef.current + (displayBufferRef.current ? " " : "") + trimmed).trim();
       
-      // Keep display buffer manageable
-      if (newDisplay.length > 320) {
-        const cutoff = newDisplay.length - 240;
+      if (newDisplay.length > 2000) {
+        const cutoff = newDisplay.length - 1500;
         const nextSpace = newDisplay.indexOf(' ', cutoff);
         newDisplay = newDisplay.substring(nextSpace !== -1 ? nextSpace : cutoff).trim();
       }
@@ -112,12 +121,10 @@ const App: React.FC = () => {
       setSegments(newDisplay);
       setLiveTurnText('');
 
-      // USE REFINED SMART SEGMENTER
       if (SmartSegmenter.shouldFlush(segmentBufferRef.current, pauseDuration)) {
         shipSegment(segmentBufferRef.current);
         segmentBufferRef.current = '';
       } else {
-        // Fallback: If 5 seconds pass with no more speech, force flush whatever we have
         flushTimeoutRef.current = window.setTimeout(() => {
           if (segmentBufferRef.current.trim()) {
             shipSegment(segmentBufferRef.current);
@@ -127,7 +134,6 @@ const App: React.FC = () => {
       }
     } else {
       setLiveTurnText(text.trim());
-      // Force finalize if speaker trails off for 2.2s
       silenceTimeoutRef.current = window.setTimeout(() => handleTranscription(text, true), 2200);
     }
   }, []);
@@ -181,17 +187,8 @@ const App: React.FC = () => {
     setLiveTurnText('');
   };
 
-  const renderText = segments ? (liveTurnText ? `${segments} ${liveTurnText}` : segments) : liveTurnText;
-
   const subtitleStyle: React.CSSProperties = {
-    textShadow: `
-      2px 2px 4px rgba(0,0,0,1),
-      -1px -1px 0 rgba(0,0,0,1),  
-      1px -1px 0 rgba(0,0,0,1),
-      -1px 1px 0 rgba(0,0,0,1),
-      1px 1px 0 rgba(0,0,0,1),
-      0px 0px 8px rgba(0,0,0,0.5)
-    `,
+    textShadow: '0 4px 12px rgba(0,0,0,1), 0 2px 4px rgba(0,0,0,0.8)',
     WebkitFontSmoothing: 'antialiased'
   };
 
@@ -199,47 +196,52 @@ const App: React.FC = () => {
     <div className="fixed inset-0 bg-transparent pointer-events-none w-screen h-screen overflow-hidden">
       {showTranscription && (
         <Draggable initialPos={transPos} onPosChange={setTransPos}>
-          <div className="relative group w-[800px] flex flex-col items-center">
+          <div className="relative group w-[96vw] flex flex-col items-center">
             
-            <div className={`relative flex items-center w-full px-8 py-4 transition-all duration-300 min-h-[64px] ${!renderText && !isStreaming ? 'opacity-40 grayscale' : 'opacity-100'}`}>
+            <div 
+              ref={scrollRef}
+              className={`relative flex items-end w-full px-4 py-8 transition-all duration-300 min-h-[120px] max-h-[500px] overflow-y-auto scrollbar-hide bg-black/5 hover:bg-black/10 rounded-2xl ${!segments && !liveTurnText && !isStreaming ? 'opacity-0' : 'opacity-100'}`}
+            >
               
               <div className="flex-1 text-center">
                 <p 
                   style={subtitleStyle}
-                  className={`text-[24px] font-bold tracking-tight leading-relaxed antialiased break-words ${renderText ? 'text-white' : 'text-zinc-400 italic'}`}
+                  className="text-[28px] font-bold tracking-tight leading-snug antialiased break-words text-white"
                 >
-                  {renderText || (isStreaming ? "Engine Active: Listening..." : "")}
-                  {isStreaming && !liveTurnText && (
-                    <span className="ml-3 inline-flex items-center space-x-1">
-                      <span className="w-2 h-2 bg-lime-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(0,0,0,0.8)]" />
-                      <span className="w-2 h-2 bg-lime-500/60 rounded-full animate-pulse delay-75 shadow-[0_0_8px_rgba(0,0,0,0.8)]" />
+                  {segments}
+                  {liveTurnText && (
+                    <span className="ml-2 text-lime-400 opacity-90 transition-all duration-200 animate-in fade-in slide-in-from-right-1">
+                      {liveTurnText}
                     </span>
+                  )}
+                  {isStreaming && !segments && !liveTurnText && (
+                    <span className="text-zinc-500 italic opacity-50 text-[18px]">Engine Listening...</span>
                   )}
                 </p>
               </div>
 
-              <div className="absolute right-0 top-1/2 -translate-y-1/2">
+              <div className="absolute right-4 bottom-4">
                 {syncStatus.status !== 'idle' && (
-                  <div className={`flex items-center space-x-2 px-2.5 py-1 rounded-md border text-[9px] font-black uppercase tracking-widest animate-in fade-in duration-300 shadow-lg ${
+                  <div className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-widest animate-in fade-in zoom-in duration-300 shadow-2xl ${
                     syncStatus.status === 'syncing' ? 'bg-zinc-900/90 border-blue-500/50 text-blue-400' :
                     syncStatus.status === 'success' ? 'bg-zinc-900/90 border-lime-500/50 text-lime-400' :
                     'bg-zinc-900/90 border-red-500/50 text-red-400'
                   }`}>
-                    {syncStatus.status === 'syncing' && <div className="w-2 h-2 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
-                    <span>{syncStatus.status === 'syncing' ? 'Sync' : syncStatus.status === 'success' ? 'Saved ✓' : 'Err'}</span>
+                    {syncStatus.status === 'syncing' && <div className="w-2.5 h-2.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
+                    <span>{syncStatus.status === 'syncing' ? 'Sync' : syncStatus.status === 'success' ? 'Saved' : 'Err'}</span>
                   </div>
                 )}
               </div>
             </div>
 
             {syncStatus.status === 'error' && syncStatus.message && (
-              <div className="mt-2 px-3 py-1 bg-zinc-900/90 border border-red-500/30 rounded-md text-[9px] text-red-400 font-bold uppercase shadow-2xl">
+              <div className="mt-4 px-4 py-2 bg-red-500/20 border border-red-500/30 rounded-xl text-[10px] text-red-400 font-bold uppercase shadow-2xl backdrop-blur-md">
                 {syncStatus.message}
               </div>
             )}
             
-            <div className="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-900/80 px-3 py-0.5 rounded text-[8px] uppercase tracking-widest text-zinc-400 pointer-events-none font-black border border-white/5">
-              Drag text area
+            <div className="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-900/90 px-4 py-1 rounded-full text-[9px] uppercase tracking-widest text-zinc-400 pointer-events-none font-black border border-white/10 shadow-xl">
+              DRAG TRANSCRIPTION AREA
             </div>
           </div>
         </Draggable>
