@@ -91,6 +91,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [segments, setSegments] = useState<TranscriptionSegment[]>([]);
   const [cumulativeSource, setCumulativeSource] = useState<string>("");
+  const [liveTurnText, setLiveTurnText] = useState<string>("");
   const [currentSpeaker, setCurrentSpeaker] = useState('Speaker 0');
   const [currentEmotion, setCurrentEmotion] = useState('NEUTRAL');
   const [error, setError] = useState<string | null>(null);
@@ -180,6 +181,7 @@ const App: React.FC = () => {
     setError(null);
     setSegments([]);
     setCumulativeSource("");
+    setLiveTurnText("");
     setTranslationEnabled(translate);
     currentTurnIdRef.current = null;
     
@@ -194,6 +196,11 @@ const App: React.FC = () => {
           setCurrentSpeaker(speaker);
           setCurrentEmotion(emotion);
           
+          // Update the live turn text for real-time visibility in God-view
+          if (!isFinal) {
+            setLiveTurnText(cleanSource);
+          }
+
           setSegments(prev => {
             const lastSeg = prev[prev.length - 1];
             // If we have an active turn that isn't final, and it matches the current turn ID, update it
@@ -226,11 +233,12 @@ const App: React.FC = () => {
             }
           });
 
-          // Update cumulative source only on final turns to prevent stuttering/repetition in the "God-view"
+          // Finalize turn
           if (isFinal) {
             setCumulativeSource(prev => prev + (prev ? " " : "") + cleanSource);
+            setLiveTurnText(""); // Clear live text since it's now in cumulative
             pushToWebhook(cleanSource, emotion, speaker, translate ? 'translation' : 'transcription', cleanTranslation);
-            currentTurnIdRef.current = null; // Reset turn ID after finalization
+            currentTurnIdRef.current = null; 
           }
 
           if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
@@ -241,8 +249,9 @@ const App: React.FC = () => {
           if (transcriptionTimeoutRef.current) clearTimeout(transcriptionTimeoutRef.current);
           transcriptionTimeoutRef.current = setTimeout(() => {
             setSegments([]);
+            setLiveTurnText("");
             setCurrentEmotion('NEUTRAL');
-          }, 30000);
+          }, 45000);
         },
         onError: (err) => { setError(err); handleStopTranscription(); },
         onClose: () => { handleStopTranscription(); }
@@ -262,6 +271,7 @@ const App: React.FC = () => {
     setIsStreaming(false);
     setSegments([]);
     setCumulativeSource("");
+    setLiveTurnText("");
     setCurrentEmotion('NEUTRAL');
     setActiveStream(null);
     currentTurnIdRef.current = null;
@@ -324,6 +334,7 @@ const App: React.FC = () => {
           setShowTranscription={setShowTranscription}
           segments={segments}
           cumulativeSource={cumulativeSource}
+          liveTurnText={liveTurnText}
         />
       </div>
 

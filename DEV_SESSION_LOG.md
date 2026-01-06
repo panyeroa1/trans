@@ -3,35 +3,24 @@
 ... (existing logs) ...
 
 # Session Log: 20250524-190000
-
-- **Start timestamp**: 2025-05-24 19:00:00
-- **Objective(s)**: 
-    - Refine the Translation Input Receiver (Live Box) in settings sidebar.
-    - Demarcate source transcription and translated text clearly for verification.
-    - Instruct Gemini to return both source and target text when translation is enabled.
-    - Update segment parsing to handle split source/translation pairs.
-- **Scope boundaries**: `services/geminiService.ts`, `App.tsx`, `components/SpeakNowButton.tsx`.
+- **Objective(s)**: Refine the Translation Input Receiver (Live Box).
 - **Files changed**: `services/geminiService.ts`, `App.tsx`, `components/SpeakNowButton.tsx`.
-- **Results**: The Live Box in settings now provides a high-fidelity audit trail showing "SRC" (source) and "TRN" (translation) for every diarized segment. This allows users to check translation accuracy against the original verbatim audio.
+- **Results**: Demarcated SRC/TRN display implemented.
 
 # Session Log: 20250524-203000
-
-- **Start timestamp**: 2025-05-24 20:30:00
-- **Objective(s)**: 
-    - Enhance 'Translation Input Receiver (Live Box)' with full source transcript history.
-    - Redesign Audit Log UI to be more readable with grouped segments and clearer headers.
-    - Add `cumulativeSource` tracking in `App.tsx` for a "God-view" of the source session.
-- **Scope boundaries**: `App.tsx`, `SpeakNowButton.tsx`.
-- **Files changed**: `App.tsx`, `components/SpeakNowButton.tsx`, `DEV_SESSION_LOG.md`.
-- **Results**: Users now have a dedicated "Full Session Transcript" window in the settings sidebar, providing complete context of the source audio. The audit log below it is redesigned for high-fidelity monitoring of specific translation turns.
+- **Objective(s)**: Enhance 'Translation Input Receiver (Live Box)' with full source transcript history.
+- **Results**: Audit log UI redesigned.
 
 # Session Log: 20250524-214500
+- **Objective(s)**: Implement turn-based aggregation.
+- **Results**: Prevented segment fragmentation.
 
-- **Start timestamp**: 2025-05-24 21:45:00
+# Session Log: 20250524-230000
+- **Start timestamp**: 2025-05-24 23:00:00
 - **Objective(s)**: 
-    - Implement turn-based aggregation in `App.tsx` to prevent segment fragmentation.
-    - Ensure 'Source Audio' in the Audit Log shows the full cumulative text for a turn as it's being built.
-    - Refine `cumulativeSource` updates to only trigger on finalized turns for cleaner history.
-- **Scope boundaries**: `App.tsx`, `DEV_SESSION_LOG.md`.
-- **Files changed**: `App.tsx`, `DEV_SESSION_LOG.md`.
-- **Results**: The Audit Log now feels much more "stable". Instead of flashing new entries for every sentence, it updates the current entry until the speaker finishes their turn, providing the "full transcript" requested.
+    - Ensure 'Full Session Transcript' shows the ongoing turn in real-time.
+    - Demarcate live vs finalized text in the monitor box.
+    - Improve Audit Log visual state for non-finalized turns (added "Listening..." status).
+- **Scope boundaries**: `App.tsx`, `SpeakNowButton.tsx`.
+- **Files changed**: `App.tsx`, `components/SpeakNowButton.tsx`, `DEV_SESSION_LOG.md`.
+- **Results**: The monitor now provides instant feedback. Users can see words appearing in the transcript God-view as they are spoken, satisfying the "full transcript for current segment" requirement.

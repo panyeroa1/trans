@@ -26,6 +26,7 @@ interface SpeakNowButtonProps {
   setShowTranscription: (val: boolean) => void;
   segments: TranscriptionSegment[];
   cumulativeSource: string;
+  liveTurnText: string;
 }
 
 const LANGUAGES = [
@@ -76,7 +77,8 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
   showTranscription,
   setShowTranscription,
   segments,
-  cumulativeSource
+  cumulativeSource,
+  liveTurnText
 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -92,7 +94,7 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
     if (liveBoxEndRef.current) {
       liveBoxEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [segments, cumulativeSource]);
+  }, [segments, cumulativeSource, liveTurnText]);
 
   useEffect(() => {
     let audioCtx: AudioContext | null = null;
@@ -185,7 +187,6 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
 
   return (
     <>
-      {/* Draggable Main Button Container */}
       <div 
         ref={buttonContainerRef}
         className="fixed z-[60] select-none touch-none"
@@ -213,7 +214,6 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
             </div>
           ) : (
             <div className="flex h-full w-[310px] shadow-2xl rounded-full overflow-visible border border-white/10 bg-zinc-900/60 backdrop-blur-2xl">
-              {/* LEFT: Speak (Transcription) */}
               <button
                 disabled={isLoading}
                 onClick={() => onStart(audioSource, false)}
@@ -229,7 +229,6 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
                 <span className="text-[11px] uppercase tracking-tighter truncate">Speak</span>
               </button>
 
-              {/* MIDDLE: Listen (Translation) */}
               <button
                 disabled={isLoading}
                 onClick={() => onStart(audioSource, true)}
@@ -241,7 +240,6 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
                 <span className="text-[11px] uppercase tracking-tighter truncate">Listen</span>
               </button>
 
-              {/* RIGHT: Settings Icon */}
               <button
                 disabled={isLoading}
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -257,7 +255,6 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
         </div>
       </div>
 
-      {/* Sidebar Overlay */}
       {isSidebarOpen && (
         <div 
           className="fixed inset-0 bg-black/20 z-[90] backdrop-blur-sm animate-in fade-in duration-300"
@@ -265,7 +262,6 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
         />
       )}
 
-      {/* Right Sidebar */}
       <div className={`fixed top-0 right-0 h-full w-80 bg-zinc-950/95 border-l border-white/10 shadow-[-20px_0_60px_rgba(0,0,0,0.8)] backdrop-blur-3xl z-[100] transform transition-transform duration-500 ease-out p-8 overflow-y-auto ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="flex items-center justify-between mb-8">
           <h3 className="text-[11px] uppercase tracking-[0.2em] font-black text-lime-500 flex items-center">
@@ -282,7 +278,6 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
         </div>
 
         <div className="space-y-8">
-          {/* Audio Source */}
           <section>
             <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black mb-3 block">Audio Input Source</label>
             <div className="grid grid-cols-2 gap-2">
@@ -304,7 +299,6 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
             </div>
           </section>
 
-          {/* Display Mode */}
           <section className="pt-6 border-t border-white/5">
             <div className="flex items-center justify-between mb-3">
               <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black">Show Overlay</label>
@@ -317,7 +311,6 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
             </div>
           </section>
 
-          {/* Translation Settings */}
           <section className="pt-6 border-t border-white/5 space-y-4">
             <h4 className="text-[10px] uppercase tracking-widest text-zinc-500 font-black flex items-center">
               <span className="w-1 h-1 rounded-full bg-cyan-500 mr-2" /> Translation Engine
@@ -354,29 +347,35 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
 
             <div className="space-y-4">
               <div className="flex flex-col">
-                <label className="text-[9px] text-zinc-500 mb-1.5 font-bold uppercase tracking-tight block">Full Session Transcript (Source)</label>
+                <label className="text-[9px] text-zinc-500 mb-1.5 font-bold uppercase tracking-tight block">Full Session Transcript (Live)</label>
                 <div className="w-full h-32 bg-lime-950/20 border border-lime-500/10 rounded-xl p-3 text-[10px] font-mono overflow-y-auto leading-relaxed backdrop-blur-sm text-lime-400/70 scrollbar-hide">
-                  {cumulativeSource || <span className="text-zinc-700 italic">No audio detected yet...</span>}
+                  {cumulativeSource}
+                  {liveTurnText && (
+                    <span className="text-white brightness-125 animate-pulse ml-1 inline">{liveTurnText}</span>
+                  )}
+                  {!cumulativeSource && !liveTurnText && (
+                    <span className="text-zinc-700 italic">No audio detected yet...</span>
+                  )}
                   <div ref={liveBoxEndRef} />
                 </div>
               </div>
 
               <div className="flex flex-col">
-                <label className="text-[9px] text-zinc-500 mb-1.5 font-bold uppercase tracking-tight block">Audit Log (Source & Translation)</label>
+                <label className="text-[9px] text-zinc-500 mb-1.5 font-bold uppercase tracking-tight block">Audit Log (History)</label>
                 <div className="w-full h-56 bg-black/60 border border-white/10 rounded-xl p-3 text-[10px] font-mono overflow-y-auto leading-relaxed backdrop-blur-sm scrollbar-hide space-y-4">
                   {segments.length === 0 ? (
                     <div className="text-zinc-600 italic">Waiting for active turn...</div>
                   ) : (
                     segments.map((seg) => (
-                      <div key={seg.id} className="bg-zinc-900/40 p-2.5 rounded-lg border border-white/5 shadow-sm">
+                      <div key={seg.id} className={`bg-zinc-900/40 p-2.5 rounded-lg border transition-colors ${seg.isFinal ? 'border-white/5 shadow-sm' : 'border-lime-500/30 shadow-[0_0_10px_rgba(101,163,13,0.1)]'}`}>
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-[8px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">{seg.speaker}</span>
-                          <span className="text-[8px] text-zinc-600 font-bold uppercase tracking-widest">{seg.emotion}</span>
+                          <span className={`text-[8px] font-bold uppercase tracking-widest ${seg.isFinal ? 'text-zinc-600' : 'text-lime-500 animate-pulse'}`}>{seg.isFinal ? seg.emotion : 'Listening...'}</span>
                         </div>
                         <div className="space-y-2">
                           <div className="flex flex-col">
                             <span className="text-[7px] text-lime-500/40 font-black uppercase mb-0.5">Source Audio</span>
-                            <span className="text-zinc-400 italic leading-snug">{seg.text}</span>
+                            <span className={`leading-snug ${seg.isFinal ? 'text-zinc-400 italic' : 'text-white'}`}>{seg.text}</span>
                           </div>
                           {seg.translation && (
                             <div className="flex flex-col pt-1.5 border-t border-white/5">
@@ -394,7 +393,6 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
             </div>
           </section>
 
-          {/* Transcription Webhook */}
           <section className="pt-6 border-t border-white/5">
             <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black mb-3 block">Transcription Webhook</label>
             <input
