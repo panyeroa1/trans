@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Modality } from "@google/genai";
 import { AudioService } from "./audioService";
 
@@ -34,7 +33,7 @@ export class GeminiLiveService {
 
     const ai = new GoogleGenAI({ apiKey });
 
-    // Initialize Audio Contexts
+    // Initialize Audio Contexts for high-quality audio processing
     this.inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
     this.outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     
@@ -43,15 +42,28 @@ export class GeminiLiveService {
 
     this.nextStartTime = 0;
     
-    let instruction = `You are a high-speed transcription engine powered by EBURON.AI.
-CORE DIRECTIVE:
-1. Detect spoken language instantly.
-2. Relay transcription verbatim with zero delay.
-3. No labels, no tags, no emotions. ONLY the text.
-LANGUAGE SUPPORT: Global support including French, Dutch, and African dialects.`;
+    // Enhanced system instruction for the requested dialects and automatic detection
+    let instruction = `You are the EBURON.AI Multilingual Real-Time Transcription Relay.
+CORE OBJECTIVE:
+- AUTOMATICALLY detect the source language being spoken.
+- Output ONLY verbatim text. NO tags, NO speaker labels, NO metadata.
+
+HIGH-PRIORITY DIALECT SUPPORT:
+You must provide ultra-accurate transcription for:
+- French (France and African variations)
+- Dutch (Netherlands and Flemish)
+- Medumba (Cameroon)
+- Ivory Coast dialects: Baoulé and Dioula.
+
+OPERATIONAL CONSTRAINTS:
+1. Verbatim relay only. Do not attempt to fix grammar unless it clearly clarifies the dialect's intent.
+2. NO conversational responses. You are a transcription tool, not a chat assistant.
+3. Transcribe in the original language by default.`;
     
     if (translation.enabled) {
-      instruction += `\nInstantly translate into ${translation.targetLanguage} as: [Source] -> [Translation].`;
+      instruction += `\n\nTRANSLATION OVERRIDE:
+- Translate the detected source language into ${translation.targetLanguage}.
+- Format: [Source Text] -> [Translation]`;
     }
 
     try {
@@ -73,7 +85,7 @@ LANGUAGE SUPPORT: Global support including French, Dutch, and African dialects.`
 
             source.connect(this.processor);
             this.processor.connect(this.inputAudioContext.destination);
-            console.debug("Gemini session opened and audio streaming started.");
+            console.debug("Gemini session opened. Auto-detecting source audio...");
           },
           onmessage: async (message: any) => {
             // 1. Handle Transcriptions
@@ -83,7 +95,7 @@ LANGUAGE SUPPORT: Global support including French, Dutch, and African dialects.`
               callbacks.onTranscription(message.serverContent.outputTranscription.text, !!message.serverContent.turnComplete);
             }
 
-            // 2. Handle Audio Output (Critical for Live Session health)
+            // 2. Handle Audio Output (Mandatory for maintaining session connectivity)
             const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (audioData && this.outputAudioContext) {
               this.nextStartTime = Math.max(this.nextStartTime, this.outputAudioContext.currentTime);

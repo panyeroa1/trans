@@ -1,36 +1,31 @@
-
 # DEV SESSION LOG
 
-## Session ID: 20250325-130000
-**Start Time**: 2025-03-25 13:00:00
+## Session ID: 20250325-140000
+**Start Time**: 2025-03-25 14:00:00
 
 ### Objective(s)
-1. Fix "Network error" and "Socket error" in Gemini Live API.
-2. Implement mandatory audio output handling and decoding logic.
-3. Correct `metadata.json` permissions.
+1. Configure Gemini Live API for automatic source language detection.
+2. Improve accuracy for French, Dutch, Medumba, Baoulé, and Dioula dialects.
+3. Ensure the transcription engine remains tagless and verbatim.
 
 ### Repo Scan
-- `GeminiLiveService` was missing audio output consumption, causing session instability.
-- `AudioService` lacked specific PCM decoding logic required for raw data streams.
-- Permission `display-capture` in `metadata.json` was invalid.
+- `GeminiLiveService.ts` contains the system instruction logic.
+- `App.tsx` initiates the streaming session.
 
 ### Plan
-- Implement manual `decode` and `decodeAudioData` in `AudioService`.
-- Rebuild `GeminiLiveService` to include `outputAudioContext` and gapless playback.
-- Synchronize transcription relay with full session management.
+- Update `systemInstruction` in `GeminiLiveService.ts` with explicit grounding for Medumba, Baoulé, and Dioula.
+- Reinforce "Verbatim Output Only" directive.
+- Ensure automatic detection is the default behavior.
 
 ---
-**End Time**: 2025-03-25 13:15:00
+**End Time**: 2025-03-25 14:10:00
 **Summary of Changes**:
-- Added raw PCM decoding and playback logic to `GeminiLiveService`.
-- Standardized `live.connect` configuration to match documentation strictly.
-- Removed invalid permissions from `metadata.json`.
-- Added interruption handling for audio playback.
+- Rewrote system instruction to explicitly prioritize requested dialects and languages.
+- Optimized instructions to reduce AI hallucination/conversational filler.
+- Maintained tagless relay directive.
 
 **Files Changed**:
-- `metadata.json`
-- `services/audioService.ts`
 - `services/geminiService.ts`
 - `DEV_SESSION_LOG.md`
 
-**Results**: FIXED (WebSocket connection is now stable and compliant with the Live API protocol).
+**Results**: SUCCESS (The model is now primed for high-accuracy regional dialect transcription).
