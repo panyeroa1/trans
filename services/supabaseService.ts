@@ -8,7 +8,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 export interface TranscriptionInsert {
   meeting_id: string;
-  speaker_id: string; // UUID string
+  speaker_id: string; 
   transcribe_text_segment: string;
   full_transcription: string;
   users_all: string[];
@@ -18,18 +18,44 @@ export class SupabaseService {
   /**
    * Saves a finalized transcription segment to the database.
    */
-  static async saveTranscription(data: TranscriptionInsert) {
+  static async saveTranscription(data: TranscriptionInsert): Promise<{ success: boolean; error?: string }> {
     try {
+      // Robustness check: Ensure users_all is at least an empty array
+      const payload = {
+        ...data,
+        users_all: data.users_all || ['System']
+      };
+
       const { error } = await supabase
         .from('transcriptions')
-        .insert([data]);
+        .insert([payload]);
 
       if (error) {
-        console.error('Supabase Insert Error:', error);
-        throw error;
+        console.error('Supabase Error:', error.message, error.details);
+        return { success: false, error: `${error.message}: ${error.details}` };
       }
-    } catch (err) {
-      console.error('Failed to save transcription to Supabase:', err);
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Supabase Exception:', err);
+      return { success: false, error: err.message || "Unknown exception during save" };
+    }
+  }
+
+  /**
+   * Quick check to see if the table exists and is accessible
+   */
+  static async testConnection(): Promise<{ success: boolean; message: string }> {
+    try {
+      const { data, error } = await supabase
+        .from('transcriptions')
+        .select('*')
+        .limit(1);
+      
+      if (error) throw error;
+      return { success: true, message: "Connection Successful" };
+    } catch (err: any) {
+      return { success: false, message: err.message || "Table 'transcriptions' not found or RLS restricted." };
     }
   }
 }

@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import SpeakNowButton from './components/SpeakNowButton';
 import SettingsModal from './components/SettingsModal';
@@ -18,18 +19,21 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [audioSource, setAudioSource] = useState<AudioSource>(AudioSource.MIC);
-  const [translationEnabled, setTranslationEnabled] = useState(false);
-  const [targetLanguage, setTargetLanguage] = useState('English (US)');
+  const [sourceLanguage, setSourceLanguage] = useState('English (US)');
   const [webhookUrl, setWebhookUrl] = useState('');
-  const [translationWebhookUrl, setTranslationWebhookUrl] = useState('');
   const [showTranscription, setShowTranscription] = useState(true);
   const [segments, setSegments] = useState<TranscriptionSegment[]>([]);
   const [liveTurnText, setLiveTurnText] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<{ status: 'idle' | 'syncing' | 'error' | 'success', message?: string }>({ status: 'idle' });
   
   const meetingIdRef = useRef('');
   const cumulativeSourceRef = useRef('');
   const [displayMeetingId, setDisplayMeetingId] = useState('');
+  
+  // Ref for proactive saving (if turnComplete is slow)
+  const lastTextRef = useRef('');
+  const silenceTimeoutRef = useRef<number | null>(null);
 
   // Initial Draggable Positions
   const [transPos, setTransPos] = useState({ x: window.innerWidth / 2 - 200, y: window.innerHeight - 120 });
@@ -39,9 +43,36 @@ const App: React.FC = () => {
   const audioServiceRef = useRef(new AudioService());
   const geminiServiceRef = useRef(new GeminiLiveService());
 
+  const saveToSupabase = async (text: string) => {
+    if (!text.trim()) return;
+    setSyncStatus({ status: 'syncing' });
+    
+    const currentFull = cumulativeSourceRef.current;
+    const updatedFull = currentFull + (currentFull ? " " : "") + text.trim();
+    cumulativeSourceRef.current = updatedFull;
+
+    const result = await SupabaseService.saveTranscription({
+      meeting_id: meetingIdRef.current,
+      speaker_id: '00000000-0000-0000-0000-000000000000',
+      transcribe_text_segment: text.trim(),
+      full_transcription: updatedFull,
+      users_all: ['System']
+    });
+
+    if (result.success) {
+      setSyncStatus({ status: 'success' });
+    } else {
+      setSyncStatus({ status: 'error', message: result.error });
+    }
+  };
+
   const handleTranscription = useCallback((text: string, isFinal: boolean) => {
     if (!text.trim()) return;
 
+    // Proactive "Silence" Detection
+    // If Gemini hasn't sent 'isFinal' but text stopped changing, we save it after 3 seconds
+    if (silenceTimeoutRef.current) window.clearTimeout(silenceTimeoutRef.current);
+    
     if (isFinal) {
       const cleanText = text.trim();
       const newSegment: TranscriptionSegment = {
@@ -54,18 +85,7 @@ const App: React.FC = () => {
 
       setSegments(prev => [...prev, newSegment].slice(-20));
       setLiveTurnText('');
-      
-      const currentFull = cumulativeSourceRef.current;
-      const updatedFull = currentFull + (currentFull ? " " : "") + cleanText;
-      cumulativeSourceRef.current = updatedFull;
-
-      SupabaseService.saveTranscription({
-        meeting_id: meetingIdRef.current,
-        speaker_id: '00000000-0000-0000-0000-000000000000',
-        transcribe_text_segment: cleanText,
-        full_transcription: updatedFull,
-        users_all: ['System']
-      });
+      saveToSupabase(cleanText);
 
       if (webhookUrl) {
         fetch(webhookUrl, {
@@ -76,11 +96,21 @@ const App: React.FC = () => {
       }
     } else {
       setLiveTurnText(text);
+      lastTextRef.current = text;
+      
+      // Proactive save timer
+      silenceTimeoutRef.current = window.setTimeout(() => {
+        if (lastTextRef.current) {
+          // If we have text that hasn't changed, treat it as a segment
+          handleTranscription(lastTextRef.current, true);
+        }
+      }, 3500);
     }
   }, [webhookUrl]);
 
   const onStart = async (source: AudioSource) => {
     setIsLoading(true);
+    setSyncStatus({ status: 'idle' });
     try {
       const hasKey = await (window as any).aistudio.hasSelectedApiKey();
       if (!hasKey) {
@@ -111,7 +141,7 @@ const App: React.FC = () => {
           },
           onClose: () => onStop()
         },
-        { enabled: translationEnabled, targetLanguage }
+        sourceLanguage
       );
       
       setIsStreaming(true);
@@ -123,6 +153,7 @@ const App: React.FC = () => {
   };
 
   const onStop = () => {
+    if (silenceTimeoutRef.current) window.clearTimeout(silenceTimeoutRef.current);
     geminiServiceRef.current.stop();
     audioServiceRef.current.stop();
     setIsStreaming(false);
@@ -165,17 +196,14 @@ const App: React.FC = () => {
           <SettingsModal 
             onClose={() => setIsSettingsOpen(false)}
             meetingId={displayMeetingId}
-            targetLanguage={targetLanguage}
-            setTargetLanguage={setTargetLanguage}
-            translationEnabled={translationEnabled}
-            setTranslationEnabled={setTranslationEnabled}
+            sourceLanguage={sourceLanguage}
+            setSourceLanguage={setSourceLanguage}
             showTranscription={showTranscription}
             setShowTranscription={setShowTranscription}
             webhookUrl={webhookUrl}
             setWebhookUrl={setWebhookUrl}
-            translationWebhookUrl={translationWebhookUrl}
-            setTranslationWebhookUrl={setTranslationWebhookUrl}
             cumulativeSource={cumulativeSourceRef.current}
+            syncStatus={syncStatus}
           />
         </Draggable>
       )}
@@ -195,12 +223,9 @@ const Draggable: React.FC<{
   const offset = useRef({ x: 0, y: 0 });
 
   const onMouseDown = (e: React.MouseEvent) => {
-    // If handleClass is specified, only allow dragging if the target (or its parent) matches the class
     if (handleClass && !(e.target as HTMLElement).closest(`.${handleClass}`)) return;
-    
-    // Prevent dragging when clicking on inputs/buttons inside the draggable if they aren't the handle
     const targetTag = (e.target as HTMLElement).tagName.toLowerCase();
-    if (!handleClass && (targetTag === 'button' || targetTag === 'input' || targetTag === 'select')) return;
+    if (!handleClass && (targetTag === 'button' || targetTag === 'input' || targetTag === 'select' || targetTag === 'textarea')) return;
 
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     offset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -211,18 +236,14 @@ const Draggable: React.FC<{
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (!isDragging) return;
-      
       const newPos = { 
         x: Math.max(0, Math.min(window.innerWidth - 100, e.clientX - offset.current.x)), 
         y: Math.max(0, Math.min(window.innerHeight - 50, e.clientY - offset.current.y)) 
       };
-      
       setPos(newPos);
       onPosChange?.(newPos);
     };
-    
     const onMouseUp = () => setIsDragging(false);
-
     if (isDragging) {
       window.addEventListener('mousemove', onMouseMove);
       window.addEventListener('mouseup', onMouseUp);

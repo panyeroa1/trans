@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Modality } from "@google/genai";
 import { AudioService } from "./audioService";
 
@@ -5,11 +6,6 @@ export interface LiveTranscriptionCallbacks {
   onTranscription: (text: string, isFinal: boolean) => void;
   onError: (error: string) => void;
   onClose: () => void;
-}
-
-export interface TranslationConfig {
-  enabled: boolean;
-  targetLanguage: string;
 }
 
 export class GeminiLiveService {
@@ -23,7 +19,7 @@ export class GeminiLiveService {
   async startStreaming(
     stream: MediaStream, 
     callbacks: LiveTranscriptionCallbacks, 
-    translation: TranslationConfig = { enabled: false, targetLanguage: 'English' }
+    sourceLanguage: string = 'English (US)'
   ) {
     const apiKey = process.env.API_KEY;
     if (!apiKey) {
@@ -33,7 +29,6 @@ export class GeminiLiveService {
 
     const ai = new GoogleGenAI({ apiKey });
 
-    // Initialize Audio Contexts for high-quality audio processing
     this.inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
     this.outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     
@@ -42,29 +37,23 @@ export class GeminiLiveService {
 
     this.nextStartTime = 0;
     
-    // Enhanced system instruction for the requested dialects and automatic detection
-    let instruction = `You are the EBURON.AI Multilingual Real-Time Transcription Relay.
-CORE OBJECTIVE:
-- AUTOMATICALLY detect the source language being spoken.
-- Output ONLY verbatim text. NO tags, NO speaker labels, NO metadata.
+    const instruction = `You are the EBURON.AI High-Fidelity Pure Transcription Engine.
+YOUR MISSION:
+- Transcribe audio with 100% verbatim accuracy. 
+- You are optimized for: ${sourceLanguage}. 
+- Understand the phonetic nuances, slang, and cultural context of ${sourceLanguage} specifically.
 
-HIGH-PRIORITY DIALECT SUPPORT:
-You must provide ultra-accurate transcription for:
-- French (France and African variations)
-- Dutch (Netherlands and Flemish)
-- Medumba (Cameroon)
-- Ivory Coast dialects: Baoulé and Dioula.
+DIALECT & ROBUSTNESS RULES:
+1. PURE TRANSCRIPTION: Output ONLY the text of what is being spoken. 
+2. NO TRANSLATION: Do not translate to English if the speaker is using another language. Transcribe the spoken language as is.
+3. NO CHAT: You are not an assistant. Do not reply, do not explain, do not add metadata like [laughter] or [music].
+4. DIALECT PRECISION: If the speaker uses Medumba, Duala, Tagalog, or specific French/Dutch dialects, transcribe the exact words used in those dialects.
+5. ROBUSTNESS: If the audio is noisy, use context to provide the most likely verbatim transcription.
 
-OPERATIONAL CONSTRAINTS:
-1. Verbatim relay only. Do not attempt to fix grammar unless it clearly clarifies the dialect's intent.
-2. NO conversational responses. You are a transcription tool, not a chat assistant.
-3. Transcribe in the original language by default.`;
-    
-    if (translation.enabled) {
-      instruction += `\n\nTRANSLATION OVERRIDE:
-- Translate the detected source language into ${translation.targetLanguage}.
-- Format: [Source Text] -> [Translation]`;
-    }
+FORMAT:
+- Continuous, clean stream of text.
+- No speaker labels.
+- No punctuation correction unless it's necessary for readability of the transcript.`;
 
     try {
       const sessionPromise = ai.live.connect({
@@ -85,17 +74,15 @@ OPERATIONAL CONSTRAINTS:
 
             source.connect(this.processor);
             this.processor.connect(this.inputAudioContext.destination);
-            console.debug("Gemini session opened. Auto-detecting source audio...");
           },
           onmessage: async (message: any) => {
-            // 1. Handle Transcriptions
             if (message.serverContent?.inputTranscription) {
               callbacks.onTranscription(message.serverContent.inputTranscription.text, !!message.serverContent.turnComplete);
             } else if (message.serverContent?.outputTranscription) {
               callbacks.onTranscription(message.serverContent.outputTranscription.text, !!message.serverContent.turnComplete);
             }
 
-            // 2. Handle Audio Output (Mandatory for maintaining session connectivity)
+            // Audio output consumption to prevent socket error
             const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (audioData && this.outputAudioContext) {
               this.nextStartTime = Math.max(this.nextStartTime, this.outputAudioContext.currentTime);
@@ -105,16 +92,15 @@ OPERATIONAL CONSTRAINTS:
                 24000,
                 1
               );
-              const source = this.outputAudioContext.createBufferSource();
-              source.buffer = buffer;
-              source.connect(this.outputAudioContext.destination);
-              source.addEventListener('ended', () => this.activeSources.delete(source));
-              source.start(this.nextStartTime);
+              const sourceNode = this.outputAudioContext.createBufferSource();
+              sourceNode.buffer = buffer;
+              sourceNode.connect(this.outputAudioContext.destination);
+              sourceNode.addEventListener('ended', () => this.activeSources.delete(sourceNode));
+              sourceNode.start(this.nextStartTime);
               this.nextStartTime += buffer.duration;
-              this.activeSources.add(source);
+              this.activeSources.add(sourceNode);
             }
 
-            // 3. Handle Interruptions
             if (message.serverContent?.interrupted) {
               this.activeSources.forEach(s => { try { s.stop(); } catch(e) {} });
               this.activeSources.clear();
@@ -123,7 +109,7 @@ OPERATIONAL CONSTRAINTS:
           },
           onerror: (err: any) => {
             console.error("Gemini Socket Error:", err);
-            callbacks.onError(err.message || "Network error. Ensure a paid API key is selected in settings.");
+            callbacks.onError(err.message || "Network error.");
           },
           onclose: () => {
             callbacks.onClose();
@@ -142,7 +128,7 @@ OPERATIONAL CONSTRAINTS:
 
       this.session = await sessionPromise;
     } catch (err: any) {
-      callbacks.onError(err.message || "Failed to establish Gemini connection. Check your API key selection.");
+      callbacks.onError(err.message || "Failed to establish connection.");
     }
   }
 
