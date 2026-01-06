@@ -126,6 +126,9 @@ const App: React.FC = () => {
     setIsLoading(true);
     setSyncStatus({ status: 'idle' });
     
+    // Clear cache to force initial sync
+    SupabaseService.clearCache(meetingIdRef.current);
+
     try {
       const hasKey = await (window as any).aistudio.hasSelectedApiKey();
       if (!hasKey) await (window as any).aistudio.openSelectKey();

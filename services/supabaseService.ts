@@ -1,3 +1,4 @@
+
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = 'https://xscdwdnjujpkczfhqrgu.supabase.co';
@@ -14,11 +15,42 @@ export interface TranscriptionInsert {
   users_all: string[];
 }
 
+interface CacheEntry {
+  fullText: string;
+  segment: string;
+  timestamp: number;
+}
+
 export class SupabaseService {
+  private static lastUpdateCache = new Map<string, CacheEntry>();
+
   /**
-   * Upserts a transcription segment. If the ID exists, it updates the same row.
+   * Upserts a transcription segment. 
+   * Optimized to only hit the API if changes are significant or enough time has passed.
    */
   static async upsertTranscription(data: TranscriptionInsert): Promise<{ success: boolean; error?: string }> {
+    const now = Date.now();
+    const cached = this.lastUpdateCache.get(data.id);
+
+    // Significance logic to reduce load:
+    // 1. If text is exactly identical to last sent, skip.
+    // 2. If it's the first sync for this session ID, we MUST send it.
+    // 3. If charsAdded > 40, it's a "significant" enough update.
+    // 4. If > 10s passed, sync to ensure eventual consistency.
+    
+    if (cached) {
+      const isIdentical = cached.fullText === data.full_transcription && cached.segment === data.transcribe_text_segment;
+      if (isIdentical) return { success: true };
+
+      const timeSinceLastUpdate = now - cached.timestamp;
+      const charsAdded = Math.abs(data.full_transcription.length - cached.fullText.length);
+
+      // Throttle minor updates unless 10 seconds have passed
+      if (charsAdded < 40 && timeSinceLastUpdate < 10000) {
+        return { success: true };
+      }
+    }
+
     try {
       const payload = {
         id: data.id,
@@ -37,12 +69,18 @@ export class SupabaseService {
         return { success: false, error: error.message };
       }
 
+      // Update cache on success
+      this.lastUpdateCache.set(data.id, {
+        fullText: data.full_transcription,
+        segment: data.transcribe_text_segment,
+        timestamp: now
+      });
+
       return { success: true };
     } catch (err: any) {
       console.error('Supabase Exception:', err);
-      // More descriptive error for common fetch failures
       if (err instanceof TypeError && err.message === 'Failed to fetch') {
-        return { success: false, error: "Network Error: Failed to reach Supabase. Check internet or rate limits." };
+        return { success: false, error: "Network Error: Failed to reach Supabase." };
       }
       return { success: false, error: err.message || "Unknown Supabase error" };
     }
@@ -60,5 +98,12 @@ export class SupabaseService {
     } catch (err: any) {
       return { success: false, message: err.message || "Schema mismatch or network error." };
     }
+  }
+
+  /**
+   * Resets the cache for a specific session.
+   */
+  static clearCache(id: string) {
+    this.lastUpdateCache.delete(id);
   }
 }
