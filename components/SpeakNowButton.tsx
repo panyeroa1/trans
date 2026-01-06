@@ -26,6 +26,7 @@ interface SpeakNowButtonProps {
   segments: TranscriptionSegment[];
   cumulativeSource: string;
   liveTurnText: string;
+  meetingId?: string;
 }
 
 const LANGUAGES = [
@@ -56,7 +57,8 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
   setShowTranscription,
   segments,
   cumulativeSource,
-  liveTurnText
+  liveTurnText,
+  meetingId
 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -301,6 +303,13 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
         </div>
 
         <div className="space-y-8">
+          {meetingId && (
+            <section className="bg-lime-500/10 border border-lime-500/20 rounded-xl p-4">
+              <label className="text-[9px] uppercase tracking-widest text-lime-500 font-black mb-2 block">Recording Session ID</label>
+              <div className="text-[11px] font-mono text-lime-200 select-all">{meetingId}</div>
+            </section>
+          )}
+
           <section>
             <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black mb-4 block">Translation Target</label>
             <div className="relative">

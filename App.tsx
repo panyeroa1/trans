@@ -3,6 +3,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import SpeakNowButton from './components/SpeakNowButton';
 import { AudioService, AudioSource } from './services/audioService';
 import { GeminiLiveService } from './services/geminiService';
+import { SupabaseService } from './services/supabaseService';
 
 const EMOTION_COLORS: Record<string, string> = {
   'JOYFUL': '#FFD700', // Gold
@@ -95,6 +96,7 @@ const App: React.FC = () => {
   const [currentSpeaker, setCurrentSpeaker] = useState('Speaker 0');
   const [currentEmotion, setCurrentEmotion] = useState('NEUTRAL');
   const [error, setError] = useState<string | null>(null);
+  const [meetingId, setMeetingId] = useState<string>("");
   
   // Settings State
   const [audioSource, setAudioSource] = useState<AudioSource>(AudioSource.MIC);
@@ -104,7 +106,6 @@ const App: React.FC = () => {
   const [targetLanguage, setTargetLanguage] = useState("English (US)");
   const [showTranscription, setShowTranscription] = useState(true);
   
-  // Adjusted initial position to be centered bottom
   const [buttonPosition, setButtonPosition] = useState({ 
     x: window.innerWidth / 2 - 155, 
     y: window.innerHeight - 100 
@@ -116,6 +117,7 @@ const App: React.FC = () => {
   const transcriptionTimeoutRef = useRef<any | null>(null);
   const highlightTimeoutRef = useRef<any | null>(null);
   const currentTurnIdRef = useRef<string | null>(null);
+  const speakerUuidMap = useRef<Record<string, string>>({});
 
   useEffect(() => {
     localStorage.setItem('transcribe_webhook_url', webhookUrl);
@@ -124,6 +126,14 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('translate_webhook_url', translationWebhookUrl);
   }, [translationWebhookUrl]);
+
+  // Helper to generate UUIDs
+  const getUuidForSpeaker = (speakerName: string) => {
+    if (!speakerUuidMap.current[speakerName]) {
+      speakerUuidMap.current[speakerName] = crypto.randomUUID();
+    }
+    return speakerUuidMap.current[speakerName];
+  };
 
   const pushToWebhook = async (text: string, emotion: string, speaker: string, type: 'transcription' | 'translation', translation?: string) => {
     const url = type === 'translation' ? translationWebhookUrl : webhookUrl;
@@ -136,6 +146,7 @@ const App: React.FC = () => {
       emotion, 
       speaker, 
       type, 
+      meeting_id: meetingId,
       timestamp: new Date().toISOString(), 
       language: type === 'translation' ? targetLanguage : 'Source' 
     };
@@ -188,12 +199,17 @@ const App: React.FC = () => {
     setLiveTurnText("");
     setTranslationEnabled(translate);
     currentTurnIdRef.current = null;
+    speakerUuidMap.current = {};
+    
+    // Generate new meeting ID
+    const newMeetingId = `MEET-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+    setMeetingId(newMeetingId);
     
     try {
       const stream = await audioServiceRef.current.getStream(source);
       setActiveStream(stream);
       await geminiServiceRef.current.startStreaming(stream, {
-        onTranscription: (text, isFinal) => {
+        onTranscription: async (text, isFinal) => {
           const { speaker, emotion, source: cleanSource, translation: cleanTranslation } = parseTranscription(text);
           if (!cleanSource) return;
           
@@ -235,9 +251,22 @@ const App: React.FC = () => {
           });
 
           if (isFinal) {
-            setCumulativeSource(prev => prev + (prev ? " " : "") + cleanSource);
+            const nextCumulative = cumulativeSource + (cumulativeSource ? " " : "") + cleanSource;
+            setCumulativeSource(nextCumulative);
             setLiveTurnText("");
+            
+            // Push to Webhook
             pushToWebhook(cleanSource, emotion, speaker, translate ? 'translation' : 'transcription', cleanTranslation);
+            
+            // Save to Supabase
+            await SupabaseService.saveTranscription({
+              meeting_id: newMeetingId,
+              speaker_id: getUuidForSpeaker(speaker),
+              transcribe_text_segment: cleanSource,
+              full_transcription: nextCumulative,
+              users_all: Object.keys(speakerUuidMap.current)
+            });
+
             currentTurnIdRef.current = null; 
           }
 
@@ -274,6 +303,7 @@ const App: React.FC = () => {
     setLiveTurnText("");
     setCurrentEmotion('NEUTRAL');
     setActiveStream(null);
+    setMeetingId("");
     currentTurnIdRef.current = null;
     if (transcriptionTimeoutRef.current) clearTimeout(transcriptionTimeoutRef.current);
     if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
@@ -339,6 +369,7 @@ const App: React.FC = () => {
           segments={segments}
           cumulativeSource={cumulativeSource}
           liveTurnText={liveTurnText}
+          meetingId={meetingId}
         />
       </div>
 
