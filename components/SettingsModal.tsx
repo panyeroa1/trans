@@ -6,6 +6,8 @@ interface SettingsModalProps {
   meetingId: string;
   sourceLanguage: string;
   setSourceLanguage: (lang: string) => void;
+  learningContext: string;
+  setLearningContext: (context: string) => void;
   showTranscription: boolean;
   setShowTranscription: (val: boolean) => void;
   webhookUrl: string;
@@ -47,7 +49,6 @@ const SettingsModal: React.FC<SettingsModalProps> = (props) => {
 
   const copyEmbedCode = () => {
     const url = window.location.href;
-    // Removed pointer-events:none to allow button clicks in the iframe
     const code = `<iframe src="${url}" style="position:fixed; top:0; left:0; width:100%; height:100%; border:none; z-index:999999; background:transparent;" allow="microphone; display-capture"></iframe>`;
     navigator.clipboard.writeText(code);
     setCopied(true);
@@ -65,6 +66,21 @@ const SettingsModal: React.FC<SettingsModalProps> = (props) => {
       </div>
 
       <div className="p-8 space-y-8 overflow-y-auto max-h-[600px] scrollbar-hide">
+        {/* PERSONALIZATION SECTION */}
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] uppercase tracking-widest text-zinc-500 font-black">Learn from Language</label>
+            <span className="text-[9px] text-lime-500 font-bold px-2 py-0.5 bg-lime-500/10 rounded-md">NEW</span>
+          </div>
+          <textarea 
+            value={props.learningContext}
+            onChange={(e) => props.setLearningContext(e.target.value)}
+            placeholder="Paste technical terms, names, or context here to improve accuracy..."
+            className="w-full h-24 bg-zinc-900/50 border border-white/10 rounded-2xl p-4 text-[12px] font-medium text-white placeholder:text-zinc-600 focus:ring-2 focus:ring-lime-500/50 outline-none transition-all resize-none scrollbar-hide"
+          />
+          <p className="text-[9px] text-zinc-500 leading-tight italic">Priming the engine with specialized vocabulary significantly reduces phonetic errors during technical sessions.</p>
+        </section>
+
         <section className="bg-white/5 p-6 rounded-[2rem] border border-white/10 ring-1 ring-white/5">
           <div className="flex items-center justify-between mb-5">
             <span className="text-[11px] uppercase tracking-widest text-zinc-500 font-bold">Sync Relay</span>
@@ -94,7 +110,6 @@ const SettingsModal: React.FC<SettingsModalProps> = (props) => {
             <span className="text-lg">🔗</span>
             <span className="text-[11px] uppercase tracking-widest text-lime-400 font-black">Embed Widget</span>
           </div>
-          <p className="text-[11px] text-zinc-500 mb-4 leading-relaxed font-medium">Add this draggable transcription engine to any website.</p>
           <button 
             onClick={copyEmbedCode}
             className={`w-full py-4 rounded-2xl text-[12px] font-black uppercase tracking-widest transition-all active:scale-95 border ${copied ? 'bg-lime-500 text-black border-lime-500' : 'bg-transparent text-lime-400 border-lime-500/30 hover:bg-lime-500/10'}`}
@@ -104,7 +119,7 @@ const SettingsModal: React.FC<SettingsModalProps> = (props) => {
         </section>
 
         <section>
-          <label className="text-[11px] uppercase tracking-widest text-zinc-500 font-black block mb-4">Phonetic Language Focus</label>
+          <label className="text-[11px] uppercase tracking-widest text-zinc-500 font-black block mb-4">Base Language Focus</label>
           <select 
             value={props.sourceLanguage}
             onChange={(e) => props.setSourceLanguage(e.target.value)}

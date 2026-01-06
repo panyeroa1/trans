@@ -16,7 +16,8 @@ export class GeminiLiveService {
   async startStreaming(
     stream: MediaStream, 
     callbacks: LiveTranscriptionCallbacks, 
-    sourceLanguage: string = 'English (US)'
+    sourceLanguage: string = 'English (US)',
+    learningContext: string = ''
   ) {
     const apiKey = process.env.API_KEY;
     if (!apiKey) {
@@ -37,7 +38,8 @@ CRITICAL INSTRUCTIONS:
 2. VERBATIM: Output EXACTLY what the human speaker says.
 3. LANGUAGE: ${sourceLanguage}.
 4. PUNCTUATION: Ensure complete sentences are marked with periods, question marks, or exclamation points to assist downstream segmentation.
-5. NO DIALOGUE: Never speak back. You are a passive observer.`;
+5. NO DIALOGUE: Never speak back. You are a passive observer.
+${learningContext ? `\nSPECIALIZED CONTEXT/VOCABULARY TO RECOGNIZE:\n${learningContext}\nUse the above terms to resolve phonetic ambiguities.` : ''}`;
 
     try {
       const sessionPromise = ai.live.connect({

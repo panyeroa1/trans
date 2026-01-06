@@ -4,32 +4,34 @@
 
 ---
 
-## Session ID: 20250326-160000
-**Start Time**: 2025-03-26 16:00:00
+## Session ID: 20250326-163000
+**Start Time**: 2025-03-26 16:30:00
 
 ### Objective(s)
-1. Eliminate row duplication by strictly using a tab-session persistent UUID.
-2. Shrink transcription overlay background to absolute minimum.
-3. Improve text flow: fill width before clearing display.
+1. Implement "Learn from Language" feature to improve transcription accuracy.
+2. Allow user-defined context/vocabulary injection into the Gemini system prompt.
 
 ### Repo Scan
-- `App.tsx`: Redesigned transcription accumulation logic. Reduced UI padding and font size.
-- `SupabaseService.ts`: Verified `upsert` logic remains robust.
+- `App.tsx`: Added state and localStorage persistence for `learningContext`.
+- `SettingsModal.tsx`: Added a new personalization section with a textarea for user input.
+- `GeminiLiveService.ts`: Updated `startStreaming` to append the learning context to the `systemInstruction`.
 
-### Technical Detail: Display Accumulation
-- **Visual logic**: Instead of shifting an array of segments, `displayBufferRef` now strings together words until it exceeds ~140 characters. This ensures the background box "stays full" and doesn't jump around or clear every single second.
-- **Compactness**: Switched to `text-[14px]` and `px-3 py-1.5`. The capsule is now very tight and unobtrusive.
-- **Row Stability**: `eburon_session_v3` key in `sessionStorage` ensures the `id` for Supabase is locked. As long as the user doesn't close the tab, every single start/stop/segment will target the same row.
+### Technical Detail: Context Injection
+- **Personalization**: Users can now paste technical documentation, specific nomenclature, or project-specific acronyms into the "Learn from Language" box in settings.
+- **Service Integration**: This text is passed directly to the Gemini model as part of its system instruction, allowing it to "expect" and correctly transcribe complex phonetic strings that it might otherwise misinterpret as common words.
+- **Persistence**: The context is saved in `localStorage` (`cs_learning_context`) so users don't have to re-input it every session.
 
 ---
-**End Time**: 2025-03-26 16:10:00
+**End Time**: 2025-03-26 16:40:00
 **Summary of Changes**:
-- **Logic**: Character-based display buffer for smoother flow.
-- **UI**: 14px font, tight padding, sleek capsule overlay.
-- **DB**: Hardened session-ID lookup.
+- Feature: Personalized vocabulary priming for higher transcription accuracy.
+- UI: New personalization section in Settings.
+- Logic: System prompt dynamic modification.
 
 **Files Changed**:
 - `App.tsx`
+- `services/geminiService.ts`
+- `components/SettingsModal.tsx`
 - `DEV_SESSION_LOG.md`
 
-**Results**: PASS. Transcription looks like a native subtitle and updates a single Supabase record reliably.
+**Results**: PASS. Users can now effectively "train" the passive observer on specific jargon.

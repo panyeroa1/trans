@@ -12,6 +12,7 @@ const App: React.FC = () => {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [audioSource, setAudioSource] = useState<AudioSource>(AudioSource.MIC);
   const [sourceLanguage, setSourceLanguage] = useState('English (US)');
+  const [learningContext, setLearningContext] = useState(() => localStorage.getItem('cs_learning_context') || '');
   const [webhookUrl, setWebhookUrl] = useState('');
   const [showTranscription, setShowTranscription] = useState(true);
   const [segments, setSegments] = useState<string>("");
@@ -19,7 +20,7 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ status: 'idle' | 'syncing' | 'error' | 'success', message?: string }>({ status: 'idle' });
   
-  // Strict Session ID persistence
+  // Persistent Session ID
   const getPersistentId = () => {
     let sid = sessionStorage.getItem('eburon_session_v3');
     if (!sid) {
@@ -36,10 +37,10 @@ const App: React.FC = () => {
   const silenceTimeoutRef = useRef<number | null>(null);
   const flushTimeoutRef = useRef<number | null>(null); 
 
-  // Position management
+  // Responsive position management
   const [transPos, setTransPos] = useState(() => {
     const saved = localStorage.getItem('cs_trans_pos_v2');
-    return saved ? JSON.parse(saved) : { x: window.innerWidth / 2 - 100, y: window.innerHeight - 80 };
+    return saved ? JSON.parse(saved) : { x: window.innerWidth / 2 - 400, y: window.innerHeight - 80 };
   });
   const [settingsPos, setSettingsPos] = useState(() => {
     const saved = localStorage.getItem('cs_settings_pos_v2');
@@ -53,6 +54,7 @@ const App: React.FC = () => {
   useEffect(() => localStorage.setItem('cs_trans_pos_v2', JSON.stringify(transPos)), [transPos]);
   useEffect(() => localStorage.setItem('cs_settings_pos_v2', JSON.stringify(settingsPos)), [settingsPos]);
   useEffect(() => localStorage.setItem('cs_control_pos_v2', JSON.stringify(controlPos)), [controlPos]);
+  useEffect(() => localStorage.setItem('cs_learning_context', learningContext), [learningContext]);
 
   const audioServiceRef = useRef(new AudioService());
   const geminiServiceRef = useRef(new GeminiLiveService());
@@ -67,7 +69,7 @@ const App: React.FC = () => {
     
     setSyncStatus({ status: 'syncing' });
     const result = await SupabaseService.upsertTranscription({
-      id: meetingIdRef.current, // USES STABLE ID: Updates existing row if DB configured with ID as PK
+      id: meetingIdRef.current,
       meeting_id: meetingIdRef.current,
       speaker_id: '00000000-0000-0000-0000-000000000000',
       transcribe_text_segment: cleanText,
@@ -88,20 +90,23 @@ const App: React.FC = () => {
       const trimmed = text.trim();
       segmentBufferRef.current = (segmentBufferRef.current + " " + trimmed).trim();
       
-      // Update the display buffer. We fill the width before clearing.
-      // Character limit is ~120 for a compact 2-line visual
-      let newDisplay = (displayBufferRef.current + " " + trimmed).trim();
-      if (newDisplay.length > 140) {
-        newDisplay = trimmed; // Start fresh if too long
-      }
-      displayBufferRef.current = newDisplay;
+      let newDisplay = (displayBufferRef.current + (displayBufferRef.current ? " " : "") + trimmed).trim();
       
+      // FLATTENED FLOW: Sliding window based on length to fill the 800px width
+      // Approx 100-120 chars for a single line at this font size
+      if (newDisplay.length > 220) {
+        // Find the last 140 characters and start from the next space to avoid cutting words
+        const cutoff = newDisplay.length - 140;
+        const nextSpace = newDisplay.indexOf(' ', cutoff);
+        newDisplay = newDisplay.substring(nextSpace !== -1 ? nextSpace : cutoff).trim();
+      }
+      
+      displayBufferRef.current = newDisplay;
       setSegments(newDisplay);
       setLiveTurnText('');
 
-      // Ship to DB every ~2 sentences or after a length threshold
       const sentenceMatch = segmentBufferRef.current.match(/[.!?]/g);
-      if ((sentenceMatch && sentenceMatch.length >= 2) || segmentBufferRef.current.length > 120) {
+      if ((sentenceMatch && sentenceMatch.length >= 2) || segmentBufferRef.current.length > 200) {
         shipSegment(segmentBufferRef.current);
         segmentBufferRef.current = '';
       } else {
@@ -110,11 +115,11 @@ const App: React.FC = () => {
             shipSegment(segmentBufferRef.current);
             segmentBufferRef.current = '';
           }
-        }, 3000);
+        }, 5000);
       }
     } else {
       setLiveTurnText(text.trim());
-      silenceTimeoutRef.current = window.setTimeout(() => handleTranscription(text, true), 1500);
+      silenceTimeoutRef.current = window.setTimeout(() => handleTranscription(text, true), 2000);
     }
   }, []);
 
@@ -125,8 +130,6 @@ const App: React.FC = () => {
   const onStart = async (source: AudioSource) => {
     setIsLoading(true);
     setSyncStatus({ status: 'idle' });
-    
-    // Clear cache to force initial sync
     SupabaseService.clearCache(meetingIdRef.current);
 
     try {
@@ -142,7 +145,7 @@ const App: React.FC = () => {
         onVADChange: handleVADChange,
         onError: () => onStop(),
         onClose: () => onStop()
-      }, sourceLanguage);
+      }, sourceLanguage, learningContext);
       setIsStreaming(true);
     } catch (err) {
       console.error(err);
@@ -163,20 +166,29 @@ const App: React.FC = () => {
     setIsVADActive(false);
     setStream(null);
     setLiveTurnText('');
+    setSegments('');
+    displayBufferRef.current = '';
     segmentBufferRef.current = '';
   };
 
-  const currentDisplay = liveTurnText || segments;
+  // Linear flow combination
+  const renderText = segments ? (liveTurnText ? `${segments} ${liveTurnText}` : segments) : liveTurnText;
 
   return (
     <div className="fixed inset-0 bg-transparent pointer-events-none w-screen h-screen overflow-hidden">
-      {showTranscription && currentDisplay && (
+      {/* FLATTENED TRANSCRIPTION STRIP - Visible from start */}
+      {showTranscription && (
         <Draggable initialPos={transPos} onPosChange={setTransPos}>
-          <div className="relative group max-w-[420px] min-w-[120px]">
-            <div className="bg-black/90 backdrop-blur-2xl px-3 py-1.5 rounded-lg border border-white/10 shadow-[0_4px_12px_rgba(0,0,0,0.5)] ring-1 ring-white/5 flex items-center justify-center transition-all duration-300">
-              <p className="text-[14px] font-helvetica-thin text-white/95 tracking-normal text-center leading-tight antialiased break-words max-w-full">
-                {currentDisplay}
+          <div className="relative group w-[800px]">
+            <div className={`bg-black/80 backdrop-blur-2xl px-6 py-2.5 rounded-full border border-white/10 shadow-[0_4px_24px_rgba(0,0,0,0.5)] flex items-center justify-center transition-all duration-700 min-h-[44px] ${!renderText && !isStreaming ? 'opacity-40 scale-95 grayscale' : 'opacity-100 scale-100'}`}>
+              <p className={`text-[14px] font-helvetica-thin tracking-wide text-center leading-none antialiased break-words w-full truncate ${renderText ? 'text-white' : 'text-zinc-500 italic'}`}>
+                {renderText || (isStreaming ? "Listening for speech..." : "Engine Standby - Speak Now to begin...")}
+                {isStreaming && !liveTurnText && <span className="ml-2 inline-block w-1 h-3 bg-lime-400 animate-pulse rounded-full align-middle" />}
               </p>
+            </div>
+            {/* Subtle drag handle indicator */}
+            <div className="absolute -top-4 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-white/10 px-3 py-0.5 rounded-full text-[9px] uppercase tracking-tighter text-white/40 pointer-events-none font-bold">
+              Drag Overlay
             </div>
           </div>
         </Draggable>
@@ -202,6 +214,8 @@ const App: React.FC = () => {
             meetingId={meetingIdRef.current}
             sourceLanguage={sourceLanguage}
             setSourceLanguage={setSourceLanguage}
+            learningContext={learningContext}
+            setLearningContext={setLearningContext}
             showTranscription={showTranscription}
             setShowTranscription={setShowTranscription}
             webhookUrl={webhookUrl}
@@ -235,7 +249,7 @@ const Draggable: React.FC<{ children: React.ReactNode; initialPos: { x: number, 
       if (!isDragging) return;
       const newPos = { 
         x: Math.max(0, Math.min(window.innerWidth - 100, e.clientX - offset.current.x)),
-        y: Math.max(0, Math.min(window.innerHeight - 50, e.clientY - offset.current.y))
+        y: Math.max(0, Math.min(window.innerHeight - 40, e.clientY - offset.current.y))
       };
       setPos(newPos);
       onPosChange?.(newPos);
@@ -253,7 +267,7 @@ const Draggable: React.FC<{ children: React.ReactNode; initialPos: { x: number, 
 
   return (
     <div 
-      className={`fixed cursor-grab active:cursor-grabbing z-[999] pointer-events-auto ${isDragging ? 'opacity-80 scale-[1.01] duration-0' : 'duration-150 transition-transform'}`} 
+      className={`fixed cursor-grab active:cursor-grabbing z-[999] pointer-events-auto ${isDragging ? 'opacity-80 scale-[1.01] duration-0' : 'duration-300 transition-all'}`} 
       style={{ left: pos.x, top: pos.y, userSelect: isDragging ? 'none' : 'auto' }} 
       onMouseDown={onMouseDown}
     >
