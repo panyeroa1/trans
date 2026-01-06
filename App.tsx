@@ -22,14 +22,14 @@ const App: React.FC = () => {
   const meetingIdRef = useRef('');
   const cumulativeSourceRef = useRef(''); 
   const segmentBufferRef = useRef(''); 
-  const displayHistoryRef = useRef<string[]>([]); // Keeps a sliding window of recent sentences
+  const displayHistoryRef = useRef<string[]>([]); // Sliding window for display
   const silenceTimeoutRef = useRef<number | null>(null);
   const flushTimeoutRef = useRef<number | null>(null); 
 
   // Position management
   const [transPos, setTransPos] = useState(() => {
     const saved = localStorage.getItem('cs_trans_pos');
-    return saved ? JSON.parse(saved) : { x: 20, y: window.innerHeight - 200 };
+    return saved ? JSON.parse(saved) : { x: window.innerWidth / 2 - 200, y: window.innerHeight - 150 };
   });
   const [settingsPos, setSettingsPos] = useState(() => {
     const saved = localStorage.getItem('cs_settings_pos');
@@ -85,39 +85,39 @@ const App: React.FC = () => {
     if (flushTimeoutRef.current) window.clearTimeout(flushTimeoutRef.current);
     
     if (isFinal) {
-      // Add to logic buffer for shipping
+      // Logic buffer for DB shipping
       segmentBufferRef.current = (segmentBufferRef.current + " " + text.trim()).trim();
       
-      // Update sliding window for display
+      // Sliding window for visual display (Keep last 3 sentences for focus)
       displayHistoryRef.current.push(text.trim());
-      if (displayHistoryRef.current.length > 8) { // Keep last 8 finalized sentences/phrases
+      if (displayHistoryRef.current.length > 3) { 
         displayHistoryRef.current.shift();
       }
       
       setSegments([{ id: Date.now(), text: displayHistoryRef.current.join(" ") }]);
       setLiveTurnText('');
 
-      // Threshold for translation context: 4 sentences or 300 characters
+      // New Threshold: Save every 1-2 sentences or after 100 characters
       const sentenceCount = countSentences(segmentBufferRef.current);
       const charCount = segmentBufferRef.current.length;
 
-      if (sentenceCount >= 4 || charCount > 350) {
+      if (sentenceCount >= 2 || (sentenceCount >= 1 && charCount > 100)) {
         shipSegment(segmentBufferRef.current);
         segmentBufferRef.current = '';
-        // Note: We do NOT clear displayHistoryRef here so the UI stays full
       } else {
+        // Force save after 3 seconds of inactivity if we have at least 1 sentence
         flushTimeoutRef.current = window.setTimeout(() => {
           if (segmentBufferRef.current.trim()) {
             shipSegment(segmentBufferRef.current);
             segmentBufferRef.current = '';
           }
-        }, 8000);
+        }, 3000);
       }
     } else {
-      // Interim text: append to the finalized history for seamless reading
+      // Real-time interim preview
       const currentStable = displayHistoryRef.current.join(" ");
       setLiveTurnText((currentStable + (currentStable ? " " : "") + text).trim());
-      silenceTimeoutRef.current = window.setTimeout(() => handleTranscription(text, true), 3000);
+      silenceTimeoutRef.current = window.setTimeout(() => handleTranscription(text, true), 2000);
     }
   }, []);
 
@@ -181,22 +181,22 @@ const App: React.FC = () => {
     <div className="fixed inset-0 bg-transparent pointer-events-none w-screen h-screen">
       {showTranscription && (isStreaming || currentDisplay) && (
         <Draggable initialPos={transPos} onPosChange={setTransPos}>
-          <div className="relative group w-[95vw]">
+          <div className="relative group max-w-[85vw] w-fit">
             {currentDisplay ? (
-              <div className="bg-black/90 backdrop-blur-3xl px-10 py-5 rounded-[2.5rem] border border-white/20 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.9)] w-full ring-1 ring-white/10 transition-all flex items-center justify-center">
-                <p className="text-[22px] font-helvetica-thin text-white tracking-wide text-center leading-relaxed antialiased px-4 break-words w-full">
+              <div className="bg-black/85 backdrop-blur-2xl px-6 py-3 rounded-[1.5rem] border border-white/20 shadow-[0_16px_32px_-8px_rgba(0,0,0,0.8)] w-full ring-1 ring-white/10 transition-all flex items-center justify-center">
+                <p className="text-[20px] font-helvetica-thin text-white tracking-wide text-center leading-relaxed antialiased px-2 break-words max-w-full">
                   {currentDisplay}
                 </p>
               </div>
             ) : isStreaming && (
-              <div className="bg-black/80 backdrop-blur-xl px-12 h-[60px] rounded-full border border-white/10 min-w-[50vw] flex items-center justify-center space-x-3 opacity-60 shadow-xl">
+              <div className="bg-black/70 backdrop-blur-xl px-8 h-[50px] rounded-full border border-white/10 flex items-center justify-center space-x-3 opacity-60 shadow-xl">
                 <div className="flex space-x-1">
-                  <div className={`w-2.5 h-2.5 rounded-full animate-bounce [animation-delay:-0.3s] ${isVADActive ? 'bg-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.9)]' : 'bg-white'}`} />
-                  <div className={`w-2.5 h-2.5 rounded-full animate-bounce [animation-delay:-0.15s] ${isVADActive ? 'bg-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.9)]' : 'bg-white'}`} />
-                  <div className={`w-2.5 h-2.5 rounded-full animate-bounce ${isVADActive ? 'bg-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.9)]' : 'bg-white'}`} />
+                  <div className={`w-2 h-2 rounded-full animate-bounce [animation-delay:-0.3s] ${isVADActive ? 'bg-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.9)]' : 'bg-white'}`} />
+                  <div className={`w-2 h-2 rounded-full animate-bounce [animation-delay:-0.15s] ${isVADActive ? 'bg-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.9)]' : 'bg-white'}`} />
+                  <div className={`w-2 h-2 rounded-full animate-bounce ${isVADActive ? 'bg-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.9)]' : 'bg-white'}`} />
                 </div>
-                <span className={`text-[14px] uppercase tracking-[0.3em] font-black italic transition-colors ${isVADActive ? 'text-lime-400' : 'text-white/60'}`}>
-                  {isVADActive ? 'Listening...' : 'Waiting for voice...'}
+                <span className={`text-[12px] uppercase tracking-[0.2em] font-black italic transition-colors ${isVADActive ? 'text-lime-400' : 'text-white/60'}`}>
+                  {isVADActive ? 'Listening' : 'Waiting'}
                 </span>
               </div>
             )}

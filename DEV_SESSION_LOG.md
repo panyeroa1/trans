@@ -4,35 +4,28 @@
 
 ---
 
-## Session ID: 20250326-120000
-**Start Time**: 2025-03-26 12:00:00
+## Session ID: 20250326-130000
+**Start Time**: 2025-03-26 13:00:00
 
 ### Objective(s)
-1. Fix "per word/syllable" flickering in the transcription display.
-2. Ensure transcription fills the horizontal space (`w-[95vw]`).
-3. Increase context window for database shipping to improve translation results.
-4. Refine Speak Now button source selection arrow and labels.
+1. Reduce the size of the transcription background.
+2. Optimize padding and corner radius for smaller textual footprints.
 
 ### Repo Scan
-- `App.tsx`: Refactored transcription state to use `displayHistoryRef` (sliding window).
-- `components/SpeakNowButton.tsx`: Adjusted UI and labels for better source selection.
+- `App.tsx`: Modified the tailwind classes for the subtitle container.
 
-### Technical Detail: Persistent Context Transcription
-- **Sliding Window Display**: Instead of clearing the screen when a segment is "shipped" to the database, the UI now maintains the last 8 finalized sentences in a `displayHistoryRef`. This ensures the line is always "filled" and the user has context of what was just said.
-- **Context-Rich Segmentation**: The `shipSegment` trigger has been raised to 4 sentences or ~350 characters. This creates larger semantic blocks in Supabase, providing the necessary context for downstream translation LLMs.
-- **Visual Stability**: Increased horizontal overlay width to 95% of viewport and increased font size to 22px for a "subtitle-like" experience.
-- **UI Labels**: Updated "Internal Speaker" label and ensured the arrow down indicator is visually distinct.
+### Technical Detail: Compact Subtitle UI
+- **Container**: Changed from `w-[95vw]` (fixed) to `max-w-[85vw] w-fit`. The background now dynamically adjusts its width to wrap the text, appearing much less intrusive.
+- **Padding**: Reduced from `px-10 py-5` to `px-6 py-3`.
+- **Aesthetics**: Reduced rounded corners to `rounded-[1.5rem]` to maintain proportion with the smaller padding. Reduced font size slightly to `20px` for a balanced look.
 
 ---
-**End Time**: 2025-03-26 12:05:00
+**End Time**: 2025-03-26 13:05:00
 **Summary of Changes**:
-- **Display**: Sliding window for zero-flicker transcription.
-- **Database**: Larger chunks saved for better translation context.
-- **UI**: Wider overlay and improved button interaction.
+- **UI**: Dynamic background width and tighter padding for transcription overlay.
 
 **Files Changed**:
 - `App.tsx`
-- `components/SpeakNowButton.tsx`
 - `DEV_SESSION_LOG.md`
 
-**Results**: PASS. UI is significantly more stable and informative.
+**Results**: PASS. Transcription looks more like a modern subtitle bubble rather than a full-width block.
