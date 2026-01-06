@@ -7,42 +7,53 @@ export enum AudioSource {
 
 /**
  * Advanced Text Segmentation Utility
- * Analyzes linguistic patterns and pauses to find natural boundaries.
+ * Analyzes linguistic patterns, transition markers, and prosodic pauses.
  */
 export class SmartSegmenter {
-  private static readonly CONJUNCTIONS = ['and', 'but', 'or', 'so', 'because', 'although', 'if', 'when', 'which', 'that'];
+  private static readonly CONJUNCTIONS = ['and', 'but', 'or', 'so', 'because', 'although', 'if', 'when', 'which', 'that', 'whereas', 'while'];
+  private static readonly TRANSITIONS = ['however', 'therefore', 'moreover', 'nonetheless', 'actually', 'basically', 'honestly', 'specifically', 'furthermore', 'nevertheless'];
+  private static readonly QUESTION_STARTERS = ['who', 'what', 'where', 'when', 'why', 'how', 'is', 'can', 'does', 'would', 'could', 'should'];
   private static readonly SENTENCE_ENDERS = /[.!?]$/;
+  private static readonly MIN_SEGMENT_LENGTH = 20;
+  private static readonly MAX_SEGMENT_LENGTH = 280;
 
   /**
    * Evaluates if a buffer should be flushed to the database.
    * @param text The current segment text.
-   * @param pauseDurationMs Time since last speech activity.
+   * @param pauseDurationMs Time since last speech activity (silence detected).
    */
   static shouldFlush(text: string, pauseDurationMs: number): boolean {
     const trimmed = text.trim();
-    if (trimmed.length < 15) return false; // Don't flush tiny fragments
+    if (trimmed.length < this.MIN_SEGMENT_LENGTH) return false;
 
     const words = trimmed.split(/\s+/);
     const lastWord = words[words.length - 1].toLowerCase().replace(/[^\w]/g, '');
+    const firstWord = words[0].toLowerCase().replace(/[^\w]/g, '');
+    
     const hasPunctuation = this.SENTENCE_ENDERS.test(trimmed);
+    const isQuestion = this.QUESTION_STARTERS.includes(firstWord);
+    const isFlowBreaking = this.TRANSITIONS.includes(lastWord);
 
-    // 1. Definite end: Punctuation + a meaningful pause
-    if (hasPunctuation && pauseDurationMs > 450) return true;
+    // 1. Grammatical Boundary: Punctuation + modest pause
+    if (hasPunctuation && pauseDurationMs > 300) return true;
 
-    // 2. Natural break: Long silence (2s+) regardless of grammar
-    if (pauseDurationMs > 2000) return true;
+    // 2. Semantic Boundary: Transition words
+    if (trimmed.length > 120 && isFlowBreaking && pauseDurationMs > 600) return true;
 
-    // 3. Size-based: If buffer is long, look for a "safe" split point
-    if (trimmed.length > 180) {
-      // Avoid splitting in the middle of a connecting thought
-      if (this.CONJUNCTIONS.includes(lastWord)) return false;
-      
-      // If we have a comma or just a long pause in a long sentence, it's safe
-      if (trimmed.includes(',') && pauseDurationMs > 800) return true;
-      
-      // Emergency cap to prevent massive single-row transcriptions
-      if (trimmed.length > 350) return true;
+    // 3. Question Logic:
+    if (isQuestion && trimmed.length > 50 && pauseDurationMs > 800) return true;
+
+    // 4. Natural Break (Prosody):
+    if (pauseDurationMs > 1500) return true;
+
+    // 5. Size Management:
+    if (trimmed.length > this.MAX_SEGMENT_LENGTH) {
+      if (!this.CONJUNCTIONS.includes(lastWord)) return true;
+      if (trimmed.length > 400) return true;
     }
+
+    // 6. Linguistic Flow:
+    if (this.CONJUNCTIONS.includes(lastWord)) return false;
 
     return false;
   }
@@ -54,7 +65,7 @@ export class AudioService {
   
   // VAD state for adaptive noise floor tracking
   private static noiseFloor = 0.005;
-  private static readonly ALPHA = 0.02; // Smoothing factor for noise tracking
+  private static readonly ALPHA = 0.02;
 
   async getStream(source: AudioSource): Promise<MediaStream> {
     this.stop();
@@ -70,69 +81,77 @@ export class AudioService {
 
     let rawStream: MediaStream;
 
-    switch (source) {
-      case AudioSource.MIC:
-        rawStream = await navigator.mediaDevices.getUserMedia({ 
-          audio: {
-            sampleRate: 16000,
-            channelCount: 1,
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          } 
-        });
-        break;
-      case AudioSource.INTERNAL:
-      case AudioSource.SHARE:
-        const displayStream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: { sampleRate: 16000, channelCount: 1 }
-        });
-        rawStream = new MediaStream(displayStream.getAudioTracks());
-        break;
-      case AudioSource.BOTH:
-        const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const sys = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-        const dest = this.audioContext.createMediaStreamDestination();
-        this.audioContext.createMediaStreamSource(mic).connect(dest);
-        this.audioContext.createMediaStreamSource(sys).connect(dest);
-        rawStream = dest.stream;
-        break;
-      default:
-        throw new Error("Invalid source");
+    try {
+      switch (source) {
+        case AudioSource.MIC:
+          rawStream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+              sampleRate: 16000,
+              channelCount: 1,
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true
+            } 
+          });
+          break;
+        case AudioSource.INTERNAL:
+        case AudioSource.SHARE:
+          const displayStream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: { sampleRate: 16000, channelCount: 1 }
+          });
+          if (displayStream.getAudioTracks().length === 0) {
+            displayStream.getTracks().forEach(t => t.stop());
+            throw new Error("No system audio detected. Please check 'Share system audio' when sharing screen.");
+          }
+          rawStream = new MediaStream(displayStream.getAudioTracks());
+          break;
+        case AudioSource.BOTH:
+          const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const sys = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+          if (sys.getAudioTracks().length === 0) {
+            sys.getTracks().forEach(t => t.stop());
+            // Fallback to just mic if system audio failed
+            rawStream = mic;
+          } else {
+            const dest = this.audioContext.createMediaStreamDestination();
+            this.audioContext.createMediaStreamSource(mic).connect(dest);
+            this.audioContext.createMediaStreamSource(sys).connect(dest);
+            rawStream = dest.stream;
+          }
+          break;
+        default:
+          throw new Error("Invalid source");
+      }
+    } catch (err: any) {
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        throw new Error("Permission denied. Please allow microphone/screen access in your browser settings.");
+      }
+      throw err;
     }
 
     const sourceNode = this.audioContext.createMediaStreamSource(rawStream);
     
-    // EQ Chain for clarity
-    const notchFilter = this.audioContext.createBiquadFilter();
-    notchFilter.type = 'notch';
-    notchFilter.frequency.value = 60;
-    notchFilter.Q.value = 10;
-
     const hpFilter = this.audioContext.createBiquadFilter();
     hpFilter.type = 'highpass';
-    hpFilter.frequency.value = 120;
-
-    const lpFilter = this.audioContext.createBiquadFilter();
-    lpFilter.type = 'lowpass';
-    lpFilter.frequency.value = 6500;
+    hpFilter.frequency.value = 100;
 
     const presenceBoost = this.audioContext.createBiquadFilter();
     presenceBoost.type = 'peaking';
-    presenceBoost.frequency.value = 3200;
-    presenceBoost.gain.value = 6;
+    presenceBoost.frequency.value = 3500;
+    presenceBoost.gain.value = 4;
 
     const compressor = this.audioContext.createDynamicsCompressor();
-    compressor.threshold.setValueAtTime(-22, this.audioContext.currentTime);
+    compressor.threshold.setValueAtTime(-24, this.audioContext.currentTime);
+    compressor.knee.setValueAtTime(30, this.audioContext.currentTime);
     compressor.ratio.setValueAtTime(12, this.audioContext.currentTime);
+    compressor.attack.setValueAtTime(0.003, this.audioContext.currentTime);
+    compressor.release.setValueAtTime(0.25, this.audioContext.currentTime);
 
     const voiceDestination = this.audioContext.createMediaStreamDestination();
     
-    sourceNode.connect(notchFilter);
-    notchFilter.connect(hpFilter);
-    hpFilter.connect(lpFilter);
-    lpFilter.connect(presenceBoost);
+    sourceNode.connect(hpFilter);
+    hpFilter.connect(presenceBoost);
     presenceBoost.connect(compressor);
     compressor.connect(voiceDestination);
 
@@ -151,26 +170,16 @@ export class AudioService {
     }
   }
 
-  /**
-   * Refined VAD with dynamic noise floor tracking.
-   * Adjusts sensitivity based on environment energy levels.
-   */
   static isVoiceActive(float32Array: Float32Array): boolean {
     let sum = 0;
     for (let i = 0; i < float32Array.length; i++) {
       sum += float32Array[i] * float32Array[i];
     }
     const rms = Math.sqrt(sum / float32Array.length);
-    
-    // Update Noise Floor: If RMS is consistently low, track it as noise
-    if (rms < this.noiseFloor * 1.8) {
+    if (rms < this.noiseFloor * 1.5) {
       this.noiseFloor = (this.ALPHA * rms) + (1 - this.ALPHA) * this.noiseFloor;
     }
-    
-    // Adaptive Threshold: Voice must be significantly higher than tracked noise floor
-    // Floor the threshold at 0.008 to prevent hyper-sensitivity in silent rooms
-    const adaptiveThreshold = Math.max(0.008, this.noiseFloor * 2.2);
-    
+    const adaptiveThreshold = Math.max(0.006, this.noiseFloor * 2.5);
     return rms > adaptiveThreshold;
   }
 
