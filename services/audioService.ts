@@ -5,9 +5,56 @@ export enum AudioSource {
   BOTH = 'both'
 }
 
+/**
+ * Advanced Text Segmentation Utility
+ * Analyzes linguistic patterns and pauses to find natural boundaries.
+ */
+export class SmartSegmenter {
+  private static readonly CONJUNCTIONS = ['and', 'but', 'or', 'so', 'because', 'although', 'if', 'when', 'which', 'that'];
+  private static readonly SENTENCE_ENDERS = /[.!?]$/;
+
+  /**
+   * Evaluates if a buffer should be flushed to the database.
+   * @param text The current segment text.
+   * @param pauseDurationMs Time since last speech activity.
+   */
+  static shouldFlush(text: string, pauseDurationMs: number): boolean {
+    const trimmed = text.trim();
+    if (trimmed.length < 15) return false; // Don't flush tiny fragments
+
+    const words = trimmed.split(/\s+/);
+    const lastWord = words[words.length - 1].toLowerCase().replace(/[^\w]/g, '');
+    const hasPunctuation = this.SENTENCE_ENDERS.test(trimmed);
+
+    // 1. Definite end: Punctuation + a meaningful pause
+    if (hasPunctuation && pauseDurationMs > 450) return true;
+
+    // 2. Natural break: Long silence (2s+) regardless of grammar
+    if (pauseDurationMs > 2000) return true;
+
+    // 3. Size-based: If buffer is long, look for a "safe" split point
+    if (trimmed.length > 180) {
+      // Avoid splitting in the middle of a connecting thought
+      if (this.CONJUNCTIONS.includes(lastWord)) return false;
+      
+      // If we have a comma or just a long pause in a long sentence, it's safe
+      if (trimmed.includes(',') && pauseDurationMs > 800) return true;
+      
+      // Emergency cap to prevent massive single-row transcriptions
+      if (trimmed.length > 350) return true;
+    }
+
+    return false;
+  }
+}
+
 export class AudioService {
   private audioContext: AudioContext | null = null;
   private currentStream: MediaStream | null = null;
+  
+  // VAD state for adaptive noise floor tracking
+  private static noiseFloor = 0.005;
+  private static readonly ALPHA = 0.02; // Smoothing factor for noise tracking
 
   async getStream(source: AudioSource): Promise<MediaStream> {
     this.stop();
@@ -55,57 +102,37 @@ export class AudioService {
         throw new Error("Invalid source");
     }
 
-    // --- Advanced Surgical DSP Chain for Speech Clarity ---
     const sourceNode = this.audioContext.createMediaStreamSource(rawStream);
     
-    // 1. Notch Filter (Remove 60Hz Electrical Hum)
+    // EQ Chain for clarity
     const notchFilter = this.audioContext.createBiquadFilter();
     notchFilter.type = 'notch';
     notchFilter.frequency.value = 60;
-    notchFilter.Q.value = 10; // Very narrow
+    notchFilter.Q.value = 10;
 
-    // 2. Steep High Pass (Remove 0-120Hz rumble / background mechanical noise)
     const hpFilter = this.audioContext.createBiquadFilter();
     hpFilter.type = 'highpass';
     hpFilter.frequency.value = 120;
-    hpFilter.Q.value = 0.707; // Butterworth characteristic
 
-    // 3. Steep Low Pass (Remove static / hiss above 6500Hz)
     const lpFilter = this.audioContext.createBiquadFilter();
     lpFilter.type = 'lowpass';
     lpFilter.frequency.value = 6500;
-    lpFilter.Q.value = 1.0; // Higher Q for steeper roll-off at the edge of human speech
 
-    // 4. Clarity EQ (Subtractive: Cut 400Hz room "boxiness")
-    const boxinessFilter = this.audioContext.createBiquadFilter();
-    boxinessFilter.type = 'peaking';
-    boxinessFilter.frequency.value = 400;
-    boxinessFilter.Q.value = 1.0;
-    boxinessFilter.gain.value = -4; // Reduce resonance
-
-    // 5. Presence Boost (Additive: Enhance 3.2kHz for sibilance/consonant intelligibility)
     const presenceBoost = this.audioContext.createBiquadFilter();
     presenceBoost.type = 'peaking';
     presenceBoost.frequency.value = 3200;
-    presenceBoost.Q.value = 1.5;
     presenceBoost.gain.value = 6;
 
-    // 6. Professional Dynamics Compressor (Normalization & Leveling)
     const compressor = this.audioContext.createDynamicsCompressor();
     compressor.threshold.setValueAtTime(-22, this.audioContext.currentTime);
-    compressor.knee.setValueAtTime(25, this.audioContext.currentTime);
-    compressor.ratio.setValueAtTime(10, this.audioContext.currentTime);
-    compressor.attack.setValueAtTime(0.005, this.audioContext.currentTime);
-    compressor.release.setValueAtTime(0.1, this.audioContext.currentTime);
+    compressor.ratio.setValueAtTime(12, this.audioContext.currentTime);
 
     const voiceDestination = this.audioContext.createMediaStreamDestination();
     
-    // Serial Connection Chain
     sourceNode.connect(notchFilter);
     notchFilter.connect(hpFilter);
     hpFilter.connect(lpFilter);
-    lpFilter.connect(boxinessFilter);
-    boxinessFilter.connect(presenceBoost);
+    lpFilter.connect(presenceBoost);
     presenceBoost.connect(compressor);
     compressor.connect(voiceDestination);
 
@@ -126,22 +153,25 @@ export class AudioService {
 
   /**
    * Refined VAD with dynamic noise floor tracking.
+   * Adjusts sensitivity based on environment energy levels.
    */
-  static isVoiceActive(float32Array: Float32Array, threshold: number = 0.012): boolean {
+  static isVoiceActive(float32Array: Float32Array): boolean {
     let sum = 0;
-    let peak = 0;
-    
     for (let i = 0; i < float32Array.length; i++) {
-      const val = float32Array[i];
-      const absVal = Math.abs(val);
-      sum += val * val;
-      if (absVal > peak) peak = absVal;
+      sum += float32Array[i] * float32Array[i];
     }
-    
     const rms = Math.sqrt(sum / float32Array.length);
     
-    // Focus on finding meaningful variations in energy rather than just absolute levels.
-    return rms > threshold || peak > (threshold * 3.5);
+    // Update Noise Floor: If RMS is consistently low, track it as noise
+    if (rms < this.noiseFloor * 1.8) {
+      this.noiseFloor = (this.ALPHA * rms) + (1 - this.ALPHA) * this.noiseFloor;
+    }
+    
+    // Adaptive Threshold: Voice must be significantly higher than tracked noise floor
+    // Floor the threshold at 0.008 to prevent hyper-sensitivity in silent rooms
+    const adaptiveThreshold = Math.max(0.008, this.noiseFloor * 2.2);
+    
+    return rms > adaptiveThreshold;
   }
 
   static encode(bytes: Uint8Array): string {

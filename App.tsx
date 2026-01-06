@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import SpeakNowButton from './components/SpeakNowButton';
 import SettingsModal from './components/SettingsModal';
-import { AudioService, AudioSource } from './services/audioService';
+import { AudioService, AudioSource, SmartSegmenter } from './services/audioService';
 import { GeminiLiveService } from './services/geminiService';
 import { SupabaseService } from './services/supabaseService';
 
@@ -20,7 +20,6 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ status: 'idle' | 'syncing' | 'error' | 'success', message?: string }>({ status: 'idle' });
   
-  // Persistent Session ID
   const getPersistentId = () => {
     let sid = sessionStorage.getItem('eburon_session_v3');
     if (!sid) {
@@ -34,13 +33,13 @@ const App: React.FC = () => {
   const cumulativeSourceRef = useRef(''); 
   const segmentBufferRef = useRef(''); 
   const displayBufferRef = useRef(''); 
+  const lastActivityTimeRef = useRef<number>(Date.now());
   const silenceTimeoutRef = useRef<number | null>(null);
   const flushTimeoutRef = useRef<number | null>(null); 
 
-  // Responsive position management
   const [transPos, setTransPos] = useState(() => {
     const saved = localStorage.getItem('cs_trans_pos_v2');
-    return saved ? JSON.parse(saved) : { x: window.innerWidth / 2 - 400, y: window.innerHeight - 120 };
+    return saved ? JSON.parse(saved) : { x: window.innerWidth / 2 - 400, y: window.innerHeight - 150 };
   });
   const [settingsPos, setSettingsPos] = useState(() => {
     const saved = localStorage.getItem('cs_settings_pos_v2');
@@ -56,7 +55,6 @@ const App: React.FC = () => {
   useEffect(() => localStorage.setItem('cs_control_pos_v2', JSON.stringify(controlPos)), [controlPos]);
   useEffect(() => localStorage.setItem('cs_learning_context', learningContext), [learningContext]);
 
-  // Auto-clear "Saved" checkmark after 3 seconds
   useEffect(() => {
     if (syncStatus.status === 'success') {
       const timer = setTimeout(() => setSyncStatus(prev => ({ ...prev, status: 'idle' })), 3000);
@@ -91,15 +89,19 @@ const App: React.FC = () => {
   const handleTranscription = useCallback((text: string, isFinal: boolean) => {
     if (!text.trim()) return;
 
+    const now = Date.now();
+    const pauseDuration = now - lastActivityTimeRef.current;
+    lastActivityTimeRef.current = now;
+
     if (silenceTimeoutRef.current) window.clearTimeout(silenceTimeoutRef.current);
     if (flushTimeoutRef.current) window.clearTimeout(flushTimeoutRef.current);
     
     if (isFinal) {
       const trimmed = text.trim();
       segmentBufferRef.current = (segmentBufferRef.current + " " + trimmed).trim();
-      
       let newDisplay = (displayBufferRef.current + (displayBufferRef.current ? " " : "") + trimmed).trim();
       
+      // Keep display buffer manageable
       if (newDisplay.length > 320) {
         const cutoff = newDisplay.length - 240;
         const nextSpace = newDisplay.indexOf(' ', cutoff);
@@ -110,26 +112,29 @@ const App: React.FC = () => {
       setSegments(newDisplay);
       setLiveTurnText('');
 
-      const sentenceMatch = segmentBufferRef.current.match(/[.!?]/g);
-      if ((sentenceMatch && sentenceMatch.length >= 2) || segmentBufferRef.current.length > 200) {
+      // USE REFINED SMART SEGMENTER
+      if (SmartSegmenter.shouldFlush(segmentBufferRef.current, pauseDuration)) {
         shipSegment(segmentBufferRef.current);
         segmentBufferRef.current = '';
       } else {
+        // Fallback: If 5 seconds pass with no more speech, force flush whatever we have
         flushTimeoutRef.current = window.setTimeout(() => {
           if (segmentBufferRef.current.trim()) {
             shipSegment(segmentBufferRef.current);
             segmentBufferRef.current = '';
           }
-        }, 6000); 
+        }, 5000); 
       }
     } else {
       setLiveTurnText(text.trim());
+      // Force finalize if speaker trails off for 2.2s
       silenceTimeoutRef.current = window.setTimeout(() => handleTranscription(text, true), 2200);
     }
   }, []);
 
   const handleVADChange = useCallback((isActive: boolean) => {
     setIsVADActive(isActive);
+    if (isActive) lastActivityTimeRef.current = Date.now();
   }, []);
 
   const onStart = async (source: AudioSource) => {
@@ -138,6 +143,7 @@ const App: React.FC = () => {
     setSegments('');
     displayBufferRef.current = '';
     segmentBufferRef.current = '';
+    lastActivityTimeRef.current = Date.now();
     SupabaseService.clearCache(meetingIdRef.current);
 
     try {
@@ -177,52 +183,63 @@ const App: React.FC = () => {
 
   const renderText = segments ? (liveTurnText ? `${segments} ${liveTurnText}` : segments) : liveTurnText;
 
+  const subtitleStyle: React.CSSProperties = {
+    textShadow: `
+      2px 2px 4px rgba(0,0,0,1),
+      -1px -1px 0 rgba(0,0,0,1),  
+      1px -1px 0 rgba(0,0,0,1),
+      -1px 1px 0 rgba(0,0,0,1),
+      1px 1px 0 rgba(0,0,0,1),
+      0px 0px 8px rgba(0,0,0,0.5)
+    `,
+    WebkitFontSmoothing: 'antialiased'
+  };
+
   return (
     <div className="fixed inset-0 bg-transparent pointer-events-none w-screen h-screen overflow-hidden">
       {showTranscription && (
         <Draggable initialPos={transPos} onPosChange={setTransPos}>
           <div className="relative group w-[800px] flex flex-col items-center">
             
-            {/* Flattened Normal Strip - Simple & Clean */}
-            <div className={`relative flex items-center w-full bg-zinc-950/95 px-8 py-4 rounded-2xl border border-zinc-800 shadow-xl transition-all duration-300 min-h-[64px] overflow-hidden ${!renderText && !isStreaming ? 'opacity-40 grayscale scale-95' : 'opacity-100 scale-100'}`}>
+            <div className={`relative flex items-center w-full px-8 py-4 transition-all duration-300 min-h-[64px] ${!renderText && !isStreaming ? 'opacity-40 grayscale' : 'opacity-100'}`}>
               
-              {/* Main Text Content */}
-              <div className="flex-1 pr-16">
-                <p className={`text-[16px] font-sans tracking-normal text-center leading-relaxed antialiased break-words ${renderText ? 'text-zinc-100' : 'text-zinc-500 italic'}`}>
-                  {renderText || (isStreaming ? "Engine Active: Listening..." : "Transcription Standby")}
+              <div className="flex-1 text-center">
+                <p 
+                  style={subtitleStyle}
+                  className={`text-[24px] font-bold tracking-tight leading-relaxed antialiased break-words ${renderText ? 'text-white' : 'text-zinc-400 italic'}`}
+                >
+                  {renderText || (isStreaming ? "Engine Active: Listening..." : "")}
                   {isStreaming && !liveTurnText && (
                     <span className="ml-3 inline-flex items-center space-x-1">
-                      <span className="w-1.5 h-1.5 bg-lime-500 rounded-full animate-pulse" />
-                      <span className="w-1.5 h-1.5 bg-lime-500/60 rounded-full animate-pulse delay-75" />
+                      <span className="w-2 h-2 bg-lime-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(0,0,0,0.8)]" />
+                      <span className="w-2 h-2 bg-lime-500/60 rounded-full animate-pulse delay-75 shadow-[0_0_8px_rgba(0,0,0,0.8)]" />
                     </span>
                   )}
                 </p>
               </div>
 
-              {/* SAVING STATUS BADGE - Flattened UI */}
-              <div className="absolute right-4 top-1/2 -translate-y-1/2">
+              <div className="absolute right-0 top-1/2 -translate-y-1/2">
                 {syncStatus.status !== 'idle' && (
-                  <div className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase tracking-widest animate-in fade-in duration-300 ${
-                    syncStatus.status === 'syncing' ? 'bg-zinc-900 border-blue-500/50 text-blue-400' :
-                    syncStatus.status === 'success' ? 'bg-zinc-900 border-lime-500/50 text-lime-400' :
-                    'bg-zinc-900 border-red-500/50 text-red-400'
+                  <div className={`flex items-center space-x-2 px-2.5 py-1 rounded-md border text-[9px] font-black uppercase tracking-widest animate-in fade-in duration-300 shadow-lg ${
+                    syncStatus.status === 'syncing' ? 'bg-zinc-900/90 border-blue-500/50 text-blue-400' :
+                    syncStatus.status === 'success' ? 'bg-zinc-900/90 border-lime-500/50 text-lime-400' :
+                    'bg-zinc-900/90 border-red-500/50 text-red-400'
                   }`}>
-                    {syncStatus.status === 'syncing' && <div className="w-2.5 h-2.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
-                    <span>{syncStatus.status === 'syncing' ? 'Saving' : syncStatus.status === 'success' ? 'Saved ✓' : 'Error'}</span>
+                    {syncStatus.status === 'syncing' && <div className="w-2 h-2 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
+                    <span>{syncStatus.status === 'syncing' ? 'Sync' : syncStatus.status === 'success' ? 'Saved ✓' : 'Err'}</span>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Error Message Detail */}
             {syncStatus.status === 'error' && syncStatus.message && (
-              <div className="mt-2 px-4 py-1.5 bg-zinc-900 border border-red-500/30 rounded-lg text-[10px] text-red-400 font-medium">
-                Sync failed: {syncStatus.message}
+              <div className="mt-2 px-3 py-1 bg-zinc-900/90 border border-red-500/30 rounded-md text-[9px] text-red-400 font-bold uppercase shadow-2xl">
+                {syncStatus.message}
               </div>
             )}
             
-            <div className="absolute -top-7 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-900 px-4 py-1 rounded-md text-[10px] uppercase tracking-wider text-zinc-500 pointer-events-none font-bold border border-zinc-800">
-              Drag Strip
+            <div className="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-900/80 px-3 py-0.5 rounded text-[8px] uppercase tracking-widest text-zinc-400 pointer-events-none font-black border border-white/5">
+              Drag text area
             </div>
           </div>
         </Draggable>
