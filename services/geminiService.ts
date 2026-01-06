@@ -19,7 +19,11 @@ export class GeminiLiveService {
   private processor: ScriptProcessorNode | null = null;
 
   constructor() {
-    this.ai = new GoogleGenAI({ apiKey: (process.env.API_KEY as string) });
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      console.error("Gemini API Key is missing. Check your environment configuration.");
+    }
+    this.ai = new GoogleGenAI({ apiKey: (apiKey as string) });
   }
 
   async startStreaming(
@@ -27,9 +31,13 @@ export class GeminiLiveService {
     callbacks: LiveTranscriptionCallbacks, 
     translation: TranslationConfig = { enabled: false, targetLanguage: 'English' }
   ) {
+    if (!process.env.API_KEY) {
+      callbacks.onError("API Key missing. Please set your Gemini API key.");
+      return;
+    }
+
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
     
-    // Enhanced system instruction with specific focus on requested regional dialects and languages
     let instruction = `You are an elite multi-lingual real-time transcriptionist and speaker diarization expert. 
 Your primary directive is to automatically detect the language being spoken with extreme precision. 
 
@@ -67,6 +75,8 @@ If the speaker changes, update the tag immediately. Keep transcription verbatim.
               const pcm = AudioService.createPCM16Blob(inputData);
               sessionPromise.then((session) => {
                 session.sendRealtimeInput({ media: pcm });
+              }).catch(err => {
+                console.error("Realtime input failed", err);
               });
             };
 
@@ -80,7 +90,8 @@ If the speaker changes, update the tag immediately. Keep transcription verbatim.
             }
           },
           onerror: (err) => {
-            callbacks.onError(err.message || "Unknown API error");
+            console.error("Gemini Socket Error:", err);
+            callbacks.onError(err.message || "Network error: Connection to Gemini failed.");
           },
           onclose: () => {
             callbacks.onClose();
@@ -90,7 +101,8 @@ If the speaker changes, update the tag immediately. Keep transcription verbatim.
 
       this.session = await sessionPromise;
     } catch (err: any) {
-      callbacks.onError(err.message || "Failed to connect to Gemini Live");
+      console.error("Gemini Connection Start Failed:", err);
+      callbacks.onError(err.message || "Failed to connect to Gemini Live. Check your network or API key.");
     }
   }
 
@@ -100,7 +112,9 @@ If the speaker changes, update the tag immediately. Keep transcription verbatim.
       this.processor = null;
     }
     if (this.session) {
-      this.session.close();
+      try {
+        this.session.close();
+      } catch (e) {}
       this.session = null;
     }
   }

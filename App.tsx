@@ -118,6 +118,7 @@ const App: React.FC = () => {
   const highlightTimeoutRef = useRef<any | null>(null);
   const currentTurnIdRef = useRef<string | null>(null);
   const speakerUuidMap = useRef<Record<string, string>>({});
+  const taggedCumulativeRef = useRef<string>("");
 
   useEffect(() => {
     localStorage.setItem('transcribe_webhook_url', webhookUrl);
@@ -200,9 +201,10 @@ const App: React.FC = () => {
     setTranslationEnabled(translate);
     currentTurnIdRef.current = null;
     speakerUuidMap.current = {};
+    taggedCumulativeRef.current = "";
     
-    // Generate new meeting ID
-    const newMeetingId = `MEET-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+    // Generate new meeting ID with ORBIT prefix as requested
+    const newMeetingId = `ORBIT-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
     setMeetingId(newMeetingId);
     
     try {
@@ -251,6 +253,13 @@ const App: React.FC = () => {
           });
 
           if (isFinal) {
+            // Format for database saving: "[Speaker N]: Text"
+            const taggedSegment = `[${speaker}]: ${cleanSource}${translate && cleanTranslation ? ` -> ${cleanTranslation}` : ''}`;
+            
+            // Build tagged history for database
+            taggedCumulativeRef.current = taggedCumulativeRef.current + (taggedCumulativeRef.current ? " " : "") + taggedSegment;
+
+            // UI display history (cleaner text)
             const nextCumulative = cumulativeSource + (cumulativeSource ? " " : "") + cleanSource;
             setCumulativeSource(nextCumulative);
             setLiveTurnText("");
@@ -258,12 +267,12 @@ const App: React.FC = () => {
             // Push to Webhook
             pushToWebhook(cleanSource, emotion, speaker, translate ? 'translation' : 'transcription', cleanTranslation);
             
-            // Save to Supabase
+            // Save to Supabase using the requested tagged formats
             await SupabaseService.saveTranscription({
               meeting_id: newMeetingId,
               speaker_id: getUuidForSpeaker(speaker),
-              transcribe_text_segment: cleanSource,
-              full_transcription: nextCumulative,
+              transcribe_text_segment: taggedSegment,
+              full_transcription: taggedCumulativeRef.current,
               users_all: Object.keys(speakerUuidMap.current)
             });
 
@@ -305,6 +314,7 @@ const App: React.FC = () => {
     setActiveStream(null);
     setMeetingId("");
     currentTurnIdRef.current = null;
+    taggedCumulativeRef.current = "";
     if (transcriptionTimeoutRef.current) clearTimeout(transcriptionTimeoutRef.current);
     if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
   }, []);
