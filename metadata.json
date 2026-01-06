@@ -2,7 +2,6 @@
   "name": "CSpeaker Transcribe Pro",
   "description": "A high-performance real-time transcription tool using Gemini Live API with support for multiple audio sources including microphone and system audio.",
   "requestFramePermissions": [
-    "microphone",
-    "display-capture"
+    "microphone"
   ]
 }

@@ -1,409 +1,202 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import SpeakNowButton from './components/SpeakNowButton';
 import { AudioService, AudioSource } from './services/audioService';
 import { GeminiLiveService } from './services/geminiService';
 import { SupabaseService } from './services/supabaseService';
 
-const EMOTION_COLORS: Record<string, string> = {
-  'JOYFUL': '#FFD700', // Gold
-  'ANGRY': '#FF4500',  // OrangeRed
-  'SAD': '#1E90FF',    // DodgerBlue
-  'NEUTRAL': '#32CD32' // LimeGreen
-};
-
-const EMOTION_STYLES: Record<string, { fontSize: string, fontWeight: string, scale: string, letterSpacing: string }> = {
-  'JOYFUL': { fontSize: '19px', fontWeight: '400', scale: '1.08', letterSpacing: '0.02em' },
-  'ANGRY': { fontSize: '18px', fontWeight: '700', scale: '1.04', letterSpacing: '-0.01em' },
-  'SAD': { fontSize: '15px', fontWeight: '100', scale: '0.96', letterSpacing: '0.05em' },
-  'NEUTRAL': { fontSize: '16px', fontWeight: '100', scale: '1.0', letterSpacing: 'normal' }
-};
-
-const SPEAKER_COLORS = [
-  '#32CD32', // Speaker 0 (Default Lime)
-  '#FF00FF', // Speaker 1 (Magenta)
-  '#00FFFF', // Speaker 2 (Cyan)
-  '#FFFFFF', // Speaker 3 (White)
-  '#FFA500', // Speaker 4 (Orange)
-];
-
 export interface TranscriptionSegment {
   id: string;
-  text: string;
-  translation?: string;
   speaker: string;
+  text: string;
   emotion: string;
-  isNew: boolean;
-  isFinal: boolean;
+  timestamp: number;
 }
-
-const TypewriterText: React.FC<{ 
-  text: string; 
-  color: string; 
-  isNew: boolean;
-  emotion: string;
-}> = ({ text, color, isNew, emotion }) => {
-  const [displayedText, setDisplayedText] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const timerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (text.length > displayedText.length) {
-      setIsTyping(true);
-      const reveal = () => {
-        const distance = text.length - displayedText.length;
-        const increment = distance > 10 ? 3 : 1;
-        const next = text.slice(0, displayedText.length + increment);
-        setDisplayedText(next);
-        if (next.length === text.length) setIsTyping(false);
-      };
-      const distance = text.length - displayedText.length;
-      const delay = distance > 5 ? 10 : 25;
-      timerRef.current = window.setTimeout(reveal, delay);
-    } else {
-      setIsTyping(false);
-    }
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [text, displayedText]);
-
-  const style = EMOTION_STYLES[emotion] || EMOTION_STYLES.NEUTRAL;
-
-  return (
-    <p 
-      className={`font-helvetica-thin tracking-wide transition-all duration-700 ease-out ${isNew ? 'brightness-150' : ''}`}
-      style={{ 
-        color, 
-        fontSize: style.fontSize,
-        fontWeight: style.fontWeight,
-        letterSpacing: style.letterSpacing,
-        transform: `scale(${style.scale})`,
-        transformOrigin: 'left center',
-        textShadow: isNew ? `0 0 15px ${color}, 0 0 5px #000` : `0 0 5px rgba(0,0,0,0.8)` 
-      }}
-    >
-      {displayedText}
-      {isTyping && isNew && <span className="inline-block w-[2px] h-[14px] bg-white ml-0.5 animate-pulse" />}
-    </p>
-  );
-};
 
 const App: React.FC = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [segments, setSegments] = useState<TranscriptionSegment[]>([]);
-  const [cumulativeSource, setCumulativeSource] = useState<string>("");
-  const [liveTurnText, setLiveTurnText] = useState<string>("");
-  const [currentSpeaker, setCurrentSpeaker] = useState('Speaker 0');
-  const [currentEmotion, setCurrentEmotion] = useState('NEUTRAL');
-  const [error, setError] = useState<string | null>(null);
-  const [meetingId, setMeetingId] = useState<string>("");
-  
-  // Settings State
+  const [stream, setStream] = useState<MediaStream | null>(null);
   const [audioSource, setAudioSource] = useState<AudioSource>(AudioSource.MIC);
-  const [webhookUrl, setWebhookUrl] = useState<string>(() => localStorage.getItem('transcribe_webhook_url') || '');
-  const [translationWebhookUrl, setTranslationWebhookUrl] = useState<string>(() => localStorage.getItem('translate_webhook_url') || '');
   const [translationEnabled, setTranslationEnabled] = useState(false);
-  const [targetLanguage, setTargetLanguage] = useState("English (US)");
+  const [targetLanguage, setTargetLanguage] = useState('English (US)');
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [translationWebhookUrl, setTranslationWebhookUrl] = useState('');
   const [showTranscription, setShowTranscription] = useState(true);
-  
-  const [buttonPosition, setButtonPosition] = useState({ 
-    x: window.innerWidth / 2 - 155, 
-    y: window.innerHeight - 100 
-  });
-  const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
+  const [segments, setSegments] = useState<TranscriptionSegment[]>([]);
+  const [liveTurnText, setLiveTurnText] = useState('');
+  const [cumulativeSource, setCumulativeSource] = useState('');
+  const [meetingId, setMeetingId] = useState('');
+
+  // Draggable state for transcription
+  const [transPos, setTransPos] = useState({ x: window.innerWidth / 2 - 200, y: window.innerHeight - 150 });
+  const [isDraggingTrans, setIsDraggingTrans] = useState(false);
+  const dragStartPos = useRef({ x: 0, y: 0 });
 
   const audioServiceRef = useRef(new AudioService());
   const geminiServiceRef = useRef(new GeminiLiveService());
-  const transcriptionTimeoutRef = useRef<any | null>(null);
-  const highlightTimeoutRef = useRef<any | null>(null);
-  const currentTurnIdRef = useRef<string | null>(null);
-  const speakerUuidMap = useRef<Record<string, string>>({});
-  const taggedCumulativeRef = useRef<string>("");
 
-  useEffect(() => {
-    localStorage.setItem('transcribe_webhook_url', webhookUrl);
-  }, [webhookUrl]);
+  const handleTranscription = useCallback((text: string, isFinal: boolean) => {
+    if (!text.trim()) return;
 
-  useEffect(() => {
-    localStorage.setItem('translate_webhook_url', translationWebhookUrl);
-  }, [translationWebhookUrl]);
+    if (isFinal) {
+      const cleanText = text.trim();
+      const newSegment: TranscriptionSegment = {
+        id: crypto.randomUUID(),
+        speaker: 'System',
+        text: cleanText,
+        emotion: 'NEUTRAL',
+        timestamp: Date.now()
+      };
 
-  // Helper to generate UUIDs
-  const getUuidForSpeaker = (speakerName: string) => {
-    if (!speakerUuidMap.current[speakerName]) {
-      speakerUuidMap.current[speakerName] = crypto.randomUUID();
-    }
-    return speakerUuidMap.current[speakerName];
-  };
+      setSegments(prev => [...prev, newSegment].slice(-20));
+      setLiveTurnText('');
+      setCumulativeSource(prev => prev + (prev ? " " : "") + cleanText);
 
-  const pushToWebhook = async (text: string, emotion: string, speaker: string, type: 'transcription' | 'translation', translation?: string) => {
-    const url = type === 'translation' ? translationWebhookUrl : webhookUrl;
-    if (!url) return;
-    
-    let targetEndpoint = url.replace(/\/+$/, '') + (type === 'translation' ? '/translation' : '/transcription');
-    const payload = { 
-      text, 
-      translation,
-      emotion, 
-      speaker, 
-      type, 
-      meeting_id: meetingId,
-      timestamp: new Date().toISOString(), 
-      language: type === 'translation' ? targetLanguage : 'Source' 
-    };
-    
-    try {
-      await fetch(targetEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+      SupabaseService.saveTranscription({
+        meeting_id: meetingId,
+        speaker_id: '00000000-0000-0000-0000-000000000000', // Default UUID for tagless
+        transcribe_text_segment: cleanText,
+        full_transcription: cumulativeSource + (cumulativeSource ? " " : "") + cleanText,
+        users_all: ['System']
       });
-    } catch (e) { console.error(`Webhook push failed for ${type}:`, e); }
-  };
 
-  const parseTranscription = (rawText: string) => {
-    let text = rawText;
-    let speaker = currentSpeaker;
-    let emotion = currentEmotion;
-    const speakerMatch = text.match(/\[Speaker (\d+)\]/i);
-    if (speakerMatch) {
-      speaker = `Speaker ${speakerMatch[1]}`;
-      text = text.replace(speakerMatch[0], '');
-    }
-    const emotionTags = Object.keys(EMOTION_COLORS);
-    for (const tag of emotionTags) {
-      const pattern = `[${tag}]`;
-      if (text.toUpperCase().includes(pattern)) {
-        emotion = tag;
-        text = text.replace(new RegExp(`\\[${tag}\\]`, 'gi'), '');
-        break;
+      if (webhookUrl) {
+        fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newSegment)
+        }).catch(() => {});
       }
+    } else {
+      setLiveTurnText(text);
     }
+  }, [meetingId, webhookUrl, cumulativeSource]);
 
-    let source = text.trim();
-    let translation = '';
-
-    if (translationEnabled && source.includes(' -> ')) {
-      const parts = source.split(' -> ');
-      source = parts[0].trim();
-      translation = parts[1].trim();
-    }
-
-    return { speaker, emotion, source, translation };
-  };
-
-  const handleStartTranscription = async (source: AudioSource, translate: boolean = false) => {
+  const onStart = async (source: AudioSource) => {
     setIsLoading(true);
-    setError(null);
-    setSegments([]);
-    setCumulativeSource("");
-    setLiveTurnText("");
-    setTranslationEnabled(translate);
-    currentTurnIdRef.current = null;
-    speakerUuidMap.current = {};
-    taggedCumulativeRef.current = "";
-    
-    // Generate new meeting ID with ORBIT prefix as requested
-    const newMeetingId = `ORBIT-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+    const newMeetingId = `ORBIT-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     setMeetingId(newMeetingId);
+    setSegments([]);
+    setCumulativeSource('');
     
     try {
-      const stream = await audioServiceRef.current.getStream(source);
-      setActiveStream(stream);
-      await geminiServiceRef.current.startStreaming(stream, {
-        onTranscription: async (text, isFinal) => {
-          const { speaker, emotion, source: cleanSource, translation: cleanTranslation } = parseTranscription(text);
-          if (!cleanSource) return;
-          
-          setCurrentSpeaker(speaker);
-          setCurrentEmotion(emotion);
-          
-          if (!isFinal) {
-            setLiveTurnText(cleanSource);
-          }
-
-          setSegments(prev => {
-            const lastSeg = prev[prev.length - 1];
-            if (lastSeg && !lastSeg.isFinal && currentTurnIdRef.current === lastSeg.id) {
-              const updated = [...prev];
-              updated[updated.length - 1] = {
-                ...lastSeg,
-                text: cleanSource,
-                translation: translate ? cleanTranslation : undefined,
-                emotion,
-                speaker,
-                isFinal,
-                isNew: true
-              };
-              return updated;
-            } else {
-              const newId = Math.random().toString(36).substring(2, 9);
-              currentTurnIdRef.current = newId;
-              const newSegment: TranscriptionSegment = {
-                id: newId,
-                text: cleanSource,
-                translation: translate ? cleanTranslation : undefined,
-                speaker,
-                emotion,
-                isNew: true,
-                isFinal
-              };
-              return [...prev, newSegment].slice(-40);
-            }
-          });
-
-          if (isFinal) {
-            // Format for database saving: "[Speaker N]: Text"
-            const taggedSegment = `[${speaker}]: ${cleanSource}${translate && cleanTranslation ? ` -> ${cleanTranslation}` : ''}`;
-            
-            // Build tagged history for database
-            taggedCumulativeRef.current = taggedCumulativeRef.current + (taggedCumulativeRef.current ? " " : "") + taggedSegment;
-
-            // UI display history (cleaner text)
-            const nextCumulative = cumulativeSource + (cumulativeSource ? " " : "") + cleanSource;
-            setCumulativeSource(nextCumulative);
-            setLiveTurnText("");
-            
-            // Push to Webhook
-            pushToWebhook(cleanSource, emotion, speaker, translate ? 'translation' : 'transcription', cleanTranslation);
-            
-            // Save to Supabase using the requested tagged formats
-            await SupabaseService.saveTranscription({
-              meeting_id: newMeetingId,
-              speaker_id: getUuidForSpeaker(speaker),
-              transcribe_text_segment: taggedSegment,
-              full_transcription: taggedCumulativeRef.current,
-              users_all: Object.keys(speakerUuidMap.current)
-            });
-
-            currentTurnIdRef.current = null; 
-          }
-
-          if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
-          highlightTimeoutRef.current = setTimeout(() => {
-            setSegments(prev => prev.map(s => ({ ...s, isNew: false })));
-          }, 1200);
-
-          if (transcriptionTimeoutRef.current) clearTimeout(transcriptionTimeoutRef.current);
-          transcriptionTimeoutRef.current = setTimeout(() => {
-            setSegments([]);
-            setLiveTurnText("");
-            setCurrentEmotion('NEUTRAL');
-          }, 45000);
+      const mediaStream = await audioServiceRef.current.getStream(source);
+      setStream(mediaStream);
+      
+      await geminiServiceRef.current.startStreaming(
+        mediaStream,
+        {
+          onTranscription: handleTranscription,
+          onError: (err) => {
+            console.error("Gemini Error:", err);
+            onStop();
+          },
+          onClose: () => onStop()
         },
-        onError: (err) => { setError(err); handleStopTranscription(); },
-        onClose: () => { handleStopTranscription(); }
-      }, { enabled: translate, targetLanguage });
+        { enabled: translationEnabled, targetLanguage }
+      );
+      
       setIsStreaming(true);
-    } catch (err: any) {
-      setError(err.message || "Capture failed.");
-      handleStopTranscription();
+    } catch (err) {
+      alert("Capture Failed: " + (err as Error).message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleStopTranscription = useCallback(() => {
+  const onStop = () => {
     geminiServiceRef.current.stop();
     audioServiceRef.current.stop();
     setIsStreaming(false);
-    setSegments([]);
-    setCumulativeSource("");
-    setLiveTurnText("");
-    setCurrentEmotion('NEUTRAL');
-    setActiveStream(null);
-    setMeetingId("");
-    currentTurnIdRef.current = null;
-    taggedCumulativeRef.current = "";
-    if (transcriptionTimeoutRef.current) clearTimeout(transcriptionTimeoutRef.current);
-    if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
-  }, []);
-
-  const getSpeakerIndex = (speaker: string) => {
-    const num = parseInt(speaker.split(' ')[1]) || 0;
-    return num % SPEAKER_COLORS.length;
+    setStream(null);
+    setLiveTurnText('');
   };
 
+  // Global mouse handlers for dragging transcription
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDraggingTrans) {
+        setTransPos({
+          x: e.clientX - dragStartPos.current.x,
+          y: e.clientY - dragStartPos.current.y
+        });
+      }
+    };
+    const handleMouseUp = () => setIsDraggingTrans(false);
+
+    if (isDraggingTrans) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingTrans]);
+
+  const startDragging = (e: React.MouseEvent) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    dragStartPos.current = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+    setIsDraggingTrans(true);
+  };
+
+  const currentDisplay = liveTurnText || (segments.length > 0 ? segments[segments.length - 1].text : "");
+
   return (
-    <div className="min-h-screen bg-transparent text-zinc-100 flex flex-col items-center justify-center p-4">
-      {/* Subtitle Display */}
-      {showTranscription && (
+    <div className="min-h-screen bg-black/10 text-white font-sans relative overflow-hidden">
+      {/* Background Decor */}
+      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-lime-500/5 blur-[150px] rounded-full pointer-events-none" />
+      
+      {/* HUD Header */}
+      <header className="fixed top-6 left-6 z-50 flex items-center space-x-4">
+        <div className="h-2 w-2 rounded-full bg-lime-500 animate-pulse" />
+        <h1 className="text-[10px] font-black tracking-[0.3em] uppercase text-zinc-400">
+          EBURON.AI <span className="text-zinc-600">Flash Relay</span>
+        </h1>
+      </header>
+
+      {/* Single-Line Draggable Transcription */}
+      {showTranscription && (currentDisplay) && (
         <div 
-          className={`fixed z-50 pointer-events-none flex justify-center items-center transition-opacity duration-500 ${segments.length > 0 ? 'opacity-100' : 'opacity-0'}`}
-          style={{ 
-            left: '50%', 
-            bottom: '160px', 
-            width: '1000px', 
-            transform: 'translateX(-50%)' 
-          }}
+          className="fixed z-[60] cursor-grab active:cursor-grabbing pointer-events-auto"
+          style={{ left: transPos.x, top: transPos.y }}
+          onMouseDown={startDragging}
         >
-          <div className="inline-flex flex-wrap justify-center items-center gap-x-4 gap-y-2 max-w-full bg-black/30 backdrop-blur-2xl px-10 py-5 rounded-[2.5rem] border border-white/10 shadow-[0_30px_80px_rgba(0,0,0,0.6)] transition-all duration-500 overflow-hidden">
-            {segments.slice(-3).map((seg, idx) => (
-              <div key={seg.id} className={`flex items-center space-x-3 transition-all duration-700 ease-out transform ${seg.isNew ? 'scale-105 opacity-100' : 'scale-100 opacity-70'}`}>
-                {(idx === 0 || segments.slice(-3)[idx-1].speaker !== seg.speaker) && (
-                  <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter shadow-sm flex-shrink-0" style={{ backgroundColor: SPEAKER_COLORS[getSpeakerIndex(seg.speaker)], color: '#000' }}>{seg.speaker}</span>
-                )}
-                <TypewriterText 
-                  text={translationEnabled ? (seg.translation || seg.text) : seg.text} 
-                  color={EMOTION_COLORS[seg.emotion] || EMOTION_COLORS.NEUTRAL} 
-                  isNew={seg.isNew} 
-                  emotion={seg.emotion}
-                />
-              </div>
-            ))}
+          <div className="bg-black/20 backdrop-blur-xl px-6 py-2 rounded-full border border-white/5 whitespace-nowrap flex items-center shadow-2xl">
+            <p className="text-[14px] font-helvetica-thin text-white tracking-wide">
+              {currentDisplay}
+            </p>
           </div>
         </div>
       )}
 
-      <div className="fixed z-40">
-        <SpeakNowButton 
-          onStart={handleStartTranscription}
-          onStop={handleStopTranscription}
-          isStreaming={isStreaming}
-          isLoading={isLoading}
-          onPositionChange={setButtonPosition}
-          initialPosition={buttonPosition}
-          stream={activeStream}
-          audioSource={audioSource}
-          setAudioSource={setAudioSource}
-          translationEnabled={translationEnabled}
-          setTranslationEnabled={setTranslationEnabled}
-          targetLanguage={targetLanguage}
-          setTargetLanguage={setTargetLanguage}
-          webhookUrl={webhookUrl}
-          setWebhookUrl={setWebhookUrl}
-          translationWebhookUrl={translationWebhookUrl}
-          setTranslationWebhookUrl={setTranslationWebhookUrl}
-          showTranscription={showTranscription}
-          setShowTranscription={setShowTranscription}
-          segments={segments}
-          cumulativeSource={cumulativeSource}
-          liveTurnText={liveTurnText}
-          meetingId={meetingId}
-        />
-      </div>
-
-      {error && (
-        <div className="fixed bottom-4 left-4 bg-red-950/90 border border-red-500/20 text-white p-4 rounded-2xl text-[10px] font-mono z-50 backdrop-blur-md shadow-2xl animate-in fade-in slide-in-from-left-6">
-          <div className="flex items-center space-x-3">
-            <span className="bg-red-500 px-1.5 py-0.5 rounded font-black">ERR</span>
-            <span className="max-w-xs">{error}</span>
-            <button onClick={() => setError(null)} className="opacity-40 hover:opacity-100">✕</button>
-          </div>
-        </div>
-      )}
-
-      {isStreaming && (
-        <div className="fixed bottom-4 right-4 flex items-center space-x-3 bg-black/40 px-5 py-2 rounded-full border border-white/5 backdrop-blur-xl z-50 shadow-2xl animate-in fade-in slide-in-from-right-6">
-          <div className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-lime-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-lime-500"></span>
-          </div>
-          <span className="text-[10px] uppercase tracking-widest font-black text-lime-500/80">
-            {translationEnabled ? `Translating to ${targetLanguage}` : `${currentSpeaker} • ${currentEmotion}`}
-          </span>
-        </div>
-      )}
+      {/* Pill Control */}
+      <SpeakNowButton 
+        onStart={onStart}
+        onStop={onStop}
+        isStreaming={isStreaming}
+        isLoading={isLoading}
+        stream={stream}
+        audioSource={audioSource}
+        setAudioSource={setAudioSource}
+        translationEnabled={translationEnabled}
+        setTranslationEnabled={setTranslationEnabled}
+        targetLanguage={targetLanguage}
+        setTargetLanguage={setTargetLanguage}
+        webhookUrl={webhookUrl}
+        setWebhookUrl={setWebhookUrl}
+        translationWebhookUrl={translationWebhookUrl}
+        setTranslationWebhookUrl={setTranslationWebhookUrl}
+        showTranscription={showTranscription}
+        setShowTranscription={setShowTranscription}
+        segments={segments}
+        cumulativeSource={cumulativeSource}
+        liveTurnText={liveTurnText}
+        meetingId={meetingId}
+      />
     </div>
   );
 };

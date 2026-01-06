@@ -13,15 +13,20 @@ export class AudioService {
   async getStream(source: AudioSource): Promise<MediaStream> {
     this.stop();
     this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+    
+    if (this.audioContext.state === 'suspended') {
+      await this.audioContext.resume();
+    }
+
+    let stream: MediaStream;
 
     switch (source) {
       case AudioSource.MIC:
-        return await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        break;
 
       case AudioSource.INTERNAL:
       case AudioSource.SHARE:
-        // getDisplayMedia is used for both 'internal' (tab audio) and 'share screen'
-        // User must check "Share tab audio" or "Share system audio"
         const displayStream = await navigator.mediaDevices.getDisplayMedia({
           video: true,
           audio: {
@@ -30,13 +35,13 @@ export class AudioService {
           }
         });
         
-        // Return only audio tracks if we only need transcription
         const audioTracks = displayStream.getAudioTracks();
         if (audioTracks.length === 0) {
           displayStream.getTracks().forEach(t => t.stop());
-          throw new Error("No audio track found in display media. Please ensure 'Share audio' is checked.");
+          throw new Error("No audio track found. Please ensure 'Share audio' is checked in the dialog.");
         }
-        return new MediaStream(audioTracks);
+        stream = new MediaStream(audioTracks);
+        break;
 
       case AudioSource.BOTH:
         const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -50,11 +55,15 @@ export class AudioService {
         micSource.connect(destination);
         sysSource.connect(destination);
         
-        return destination.stream;
+        stream = destination.stream;
+        break;
 
       default:
         throw new Error("Invalid audio source");
     }
+
+    this.currentStream = stream;
+    return stream;
   }
 
   stop() {
@@ -68,15 +77,52 @@ export class AudioService {
     }
   }
 
+  static encode(bytes: Uint8Array): string {
+    let binary = '';
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  static decode(base64: string): Uint8Array {
+    const binaryString = atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
+  }
+
+  static async decodeAudioData(
+    data: Uint8Array,
+    ctx: AudioContext,
+    sampleRate: number,
+    numChannels: number,
+  ): Promise<AudioBuffer> {
+    const dataInt16 = new Int16Array(data.buffer);
+    const frameCount = dataInt16.length / numChannels;
+    const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+    for (let channel = 0; channel < numChannels; channel++) {
+      const channelData = buffer.getChannelData(channel);
+      for (let i = 0; i < frameCount; i++) {
+        channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+      }
+    }
+    return buffer;
+  }
+
   static createPCM16Blob(float32Array: Float32Array): { data: string; mimeType: string } {
     const l = float32Array.length;
     const int16 = new Int16Array(l);
     for (let i = 0; i < l; i++) {
-      int16[i] = Math.max(-1, Math.min(1, float32Array[i])) * 0x7FFF;
+      int16[i] = Math.max(-1, Math.min(1, float32Array[i])) * 32768;
     }
-    const binary = String.fromCharCode(...new Uint8Array(int16.buffer));
     return {
-      data: btoa(binary),
+      data: this.encode(new Uint8Array(int16.buffer)),
       mimeType: 'audio/pcm;rate=16000'
     };
   }

@@ -14,95 +14,123 @@ export interface TranslationConfig {
 }
 
 export class GeminiLiveService {
-  private ai: GoogleGenAI;
   private session: any = null;
   private processor: ScriptProcessorNode | null = null;
-
-  constructor() {
-    const apiKey = process.env.API_KEY;
-    if (!apiKey) {
-      console.error("Gemini API Key is missing. Check your environment configuration.");
-    }
-    this.ai = new GoogleGenAI({ apiKey: (apiKey as string) });
-  }
+  private inputAudioContext: AudioContext | null = null;
+  private outputAudioContext: AudioContext | null = null;
+  private nextStartTime = 0;
+  private activeSources = new Set<AudioBufferSourceNode>();
 
   async startStreaming(
     stream: MediaStream, 
     callbacks: LiveTranscriptionCallbacks, 
     translation: TranslationConfig = { enabled: false, targetLanguage: 'English' }
   ) {
-    if (!process.env.API_KEY) {
-      callbacks.onError("API Key missing. Please set your Gemini API key.");
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      callbacks.onError("API Key missing. Check your connection or select a valid key.");
       return;
     }
 
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+    const ai = new GoogleGenAI({ apiKey });
+
+    // Initialize Audio Contexts
+    this.inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+    this.outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     
-    let instruction = `You are an elite multi-lingual real-time transcriptionist and speaker diarization expert. 
-Your primary directive is to automatically detect the language being spoken with extreme precision. 
+    if (this.inputAudioContext.state === 'suspended') await this.inputAudioContext.resume();
+    if (this.outputAudioContext.state === 'suspended') await this.outputAudioContext.resume();
 
-SPECIALIZED FOCUS:
-- French: Support all regional variants (France, Cameroon, Ivory Coast, Canada, Belgium).
-- Dutch: Support Netherlands, Flemish (Belgium), and Surinamese variants.
-- Cameroon Dialects: High-fidelity transcription for Medumba, Ewondo, Duala, Basaa, and Bulu.
-- Ivory Coast Dialects: Accurate detection and transcription for Baoulé, Dioula (Jula), Dan, Anyin, and Senoufo.
-
-Transcribe the audio exactly in its original language and native script. 
-For every segment, detect the speaker and prepend with a tag like [Speaker 0], [Speaker 1], etc. 
-Also detect the emotion and prepend it in uppercase brackets like [JOYFUL], [ANGRY], [SAD], or [NEUTRAL]. 
-Example: '[Speaker 0] [JOYFUL] Bonjour, comment ça va?'. 
-If the speaker changes, update the tag immediately. Keep transcription verbatim.`;
+    this.nextStartTime = 0;
+    
+    let instruction = `You are a high-speed transcription engine powered by EBURON.AI.
+CORE DIRECTIVE:
+1. Detect spoken language instantly.
+2. Relay transcription verbatim with zero delay.
+3. No labels, no tags, no emotions. ONLY the text.
+LANGUAGE SUPPORT: Global support including French, Dutch, and African dialects.`;
     
     if (translation.enabled) {
-      instruction += ` Additionally, for every segment, you MUST provide the original source text (in its detected language/dialect) followed by ' -> ' and its translation into ${translation.targetLanguage}. Format: [Speaker N] [EMOTION] Detected original text -> Translated text. Ensure the translation follows the source text after the arrow.`;
+      instruction += `\nInstantly translate into ${translation.targetLanguage} as: [Source] -> [Translation].`;
     }
 
     try {
-      const sessionPromise = this.ai.live.connect({
+      const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
-        config: {
-          responseModalities: [Modality.AUDIO],
-          inputAudioTranscription: {},
-          systemInstruction: instruction,
-        },
         callbacks: {
           onopen: () => {
-            const source = audioContext.createMediaStreamSource(stream);
-            this.processor = audioContext.createScriptProcessor(4096, 1, 1);
+            if (!this.inputAudioContext) return;
+            const source = this.inputAudioContext.createMediaStreamSource(stream);
+            this.processor = this.inputAudioContext.createScriptProcessor(4096, 1, 1);
             
             this.processor.onaudioprocess = (e) => {
               const inputData = e.inputBuffer.getChannelData(0);
               const pcm = AudioService.createPCM16Blob(inputData);
               sessionPromise.then((session) => {
                 session.sendRealtimeInput({ media: pcm });
-              }).catch(err => {
-                console.error("Realtime input failed", err);
-              });
+              }).catch(err => console.debug("Input send fail", err));
             };
 
             source.connect(this.processor);
-            this.processor.connect(audioContext.destination);
+            this.processor.connect(this.inputAudioContext.destination);
+            console.debug("Gemini session opened and audio streaming started.");
           },
           onmessage: async (message: any) => {
+            // 1. Handle Transcriptions
             if (message.serverContent?.inputTranscription) {
-              const text = message.serverContent.inputTranscription.text;
-              callbacks.onTranscription(text, !!message.serverContent.turnComplete);
+              callbacks.onTranscription(message.serverContent.inputTranscription.text, !!message.serverContent.turnComplete);
+            } else if (message.serverContent?.outputTranscription) {
+              callbacks.onTranscription(message.serverContent.outputTranscription.text, !!message.serverContent.turnComplete);
+            }
+
+            // 2. Handle Audio Output (Critical for Live Session health)
+            const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+            if (audioData && this.outputAudioContext) {
+              this.nextStartTime = Math.max(this.nextStartTime, this.outputAudioContext.currentTime);
+              const buffer = await AudioService.decodeAudioData(
+                AudioService.decode(audioData),
+                this.outputAudioContext,
+                24000,
+                1
+              );
+              const source = this.outputAudioContext.createBufferSource();
+              source.buffer = buffer;
+              source.connect(this.outputAudioContext.destination);
+              source.addEventListener('ended', () => this.activeSources.delete(source));
+              source.start(this.nextStartTime);
+              this.nextStartTime += buffer.duration;
+              this.activeSources.add(source);
+            }
+
+            // 3. Handle Interruptions
+            if (message.serverContent?.interrupted) {
+              this.activeSources.forEach(s => { try { s.stop(); } catch(e) {} });
+              this.activeSources.clear();
+              this.nextStartTime = 0;
             }
           },
-          onerror: (err) => {
+          onerror: (err: any) => {
             console.error("Gemini Socket Error:", err);
-            callbacks.onError(err.message || "Network error: Connection to Gemini failed.");
+            callbacks.onError(err.message || "Network error. Please verify your API key and network.");
           },
           onclose: () => {
             callbacks.onClose();
+          }
+        },
+        config: {
+          responseModalities: [Modality.AUDIO],
+          inputAudioTranscription: {},
+          outputAudioTranscription: {}, 
+          systemInstruction: instruction,
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }
           }
         }
       });
 
       this.session = await sessionPromise;
     } catch (err: any) {
-      console.error("Gemini Connection Start Failed:", err);
-      callbacks.onError(err.message || "Failed to connect to Gemini Live. Check your network or API key.");
+      callbacks.onError(err.message || "Failed to establish Gemini connection.");
     }
   }
 
@@ -111,10 +139,18 @@ If the speaker changes, update the tag immediately. Keep transcription verbatim.
       this.processor.disconnect();
       this.processor = null;
     }
+    if (this.inputAudioContext) {
+      this.inputAudioContext.close();
+      this.inputAudioContext = null;
+    }
+    if (this.outputAudioContext) {
+      this.outputAudioContext.close();
+      this.outputAudioContext = null;
+    }
+    this.activeSources.forEach(s => { try { s.stop(); } catch(e) {} });
+    this.activeSources.clear();
     if (this.session) {
-      try {
-        this.session.close();
-      } catch (e) {}
+      try { this.session.close(); } catch (e) {}
       this.session = null;
     }
   }
