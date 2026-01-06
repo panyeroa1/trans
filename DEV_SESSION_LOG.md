@@ -4,28 +4,33 @@
 
 ---
 
-## Session ID: 20250326-130000
-**Start Time**: 2025-03-26 13:00:00
+## Session ID: 20250326-140000
+**Start Time**: 2025-03-26 14:00:00
 
 ### Objective(s)
-1. Reduce the size of the transcription background.
-2. Optimize padding and corner radius for smaller textual footprints.
+1. Consolidate Supabase syncing to a single persistent row per session.
+2. Fix iframe embed interactivity by removing `pointer-events: none`.
+3. Further compact the transcription overlay UI.
 
 ### Repo Scan
-- `App.tsx`: Modified the tailwind classes for the subtitle container.
+- `App.tsx`: Updated `shipSegment` to use session ID as row ID.
+- `SettingsModal.tsx`: Fixed iframe snippet style.
 
-### Technical Detail: Compact Subtitle UI
-- **Container**: Changed from `w-[95vw]` (fixed) to `max-w-[85vw] w-fit`. The background now dynamically adjusts its width to wrap the text, appearing much less intrusive.
-- **Padding**: Reduced from `px-10 py-5` to `px-6 py-3`.
-- **Aesthetics**: Reduced rounded corners to `rounded-[1.5rem]` to maintain proportion with the smaller padding. Reduced font size slightly to `20px` for a balanced look.
+### Technical Detail: Single-Row Sync
+- **ID Management**: `meetingIdRef.current` now serves as the primary key for the `transcriptions` table upsert.
+- **Persistence**: Instead of hundreds of rows, each session now maintains exactly one row that grows in real-time.
+- **Iframe Interactivity**: The `pointer-events: none` property was preventing users from clicking the "Speak Now" button when embedded. Removing it restored full functionality.
 
 ---
-**End Time**: 2025-03-26 13:05:00
+**End Time**: 2025-03-26 14:10:00
 **Summary of Changes**:
-- **UI**: Dynamic background width and tighter padding for transcription overlay.
+- **Logic**: Upsert now targets a single row per session.
+- **Embed**: Iframe is now fully interactive.
+- **UI**: Reduced transcription background size by another 20%.
 
 **Files Changed**:
 - `App.tsx`
+- `components/SettingsModal.tsx`
 - `DEV_SESSION_LOG.md`
 
-**Results**: PASS. Transcription looks more like a modern subtitle bubble rather than a full-width block.
+**Results**: PASS. Faster syncing, cleaner data, and working embed.

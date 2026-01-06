@@ -29,7 +29,7 @@ const App: React.FC = () => {
   // Position management
   const [transPos, setTransPos] = useState(() => {
     const saved = localStorage.getItem('cs_trans_pos');
-    return saved ? JSON.parse(saved) : { x: window.innerWidth / 2 - 200, y: window.innerHeight - 150 };
+    return saved ? JSON.parse(saved) : { x: window.innerWidth / 2 - 150, y: window.innerHeight - 120 };
   });
   const [settingsPos, setSettingsPos] = useState(() => {
     const saved = localStorage.getItem('cs_settings_pos');
@@ -55,15 +55,15 @@ const App: React.FC = () => {
   const shipSegment = async (text: string) => {
     if (!text.trim()) return;
     const cleanText = text.trim();
-    const segmentId = crypto.randomUUID();
     
+    // Logic: Append to history and update ONE row identified by the meeting ID
     const previousHistory = cumulativeSourceRef.current;
     const newHistory = (previousHistory + (previousHistory ? " " : "") + cleanText).trim();
     cumulativeSourceRef.current = newHistory;
     
     setSyncStatus({ status: 'syncing' });
     const result = await SupabaseService.upsertTranscription({
-      id: segmentId,
+      id: meetingIdRef.current, // Use Session ID as primary key to update same row
       meeting_id: meetingIdRef.current,
       speaker_id: '00000000-0000-0000-0000-000000000000',
       transcribe_text_segment: cleanText,
@@ -85,39 +85,32 @@ const App: React.FC = () => {
     if (flushTimeoutRef.current) window.clearTimeout(flushTimeoutRef.current);
     
     if (isFinal) {
-      // Logic buffer for DB shipping
       segmentBufferRef.current = (segmentBufferRef.current + " " + text.trim()).trim();
       
-      // Sliding window for visual display (Keep last 3 sentences for focus)
       displayHistoryRef.current.push(text.trim());
-      if (displayHistoryRef.current.length > 3) { 
+      if (displayHistoryRef.current.length > 2) { // Even tighter display window
         displayHistoryRef.current.shift();
       }
       
       setSegments([{ id: Date.now(), text: displayHistoryRef.current.join(" ") }]);
       setLiveTurnText('');
 
-      // New Threshold: Save every 1-2 sentences or after 100 characters
       const sentenceCount = countSentences(segmentBufferRef.current);
-      const charCount = segmentBufferRef.current.length;
-
-      if (sentenceCount >= 2 || (sentenceCount >= 1 && charCount > 100)) {
+      if (sentenceCount >= 2 || segmentBufferRef.current.length > 80) {
         shipSegment(segmentBufferRef.current);
         segmentBufferRef.current = '';
       } else {
-        // Force save after 3 seconds of inactivity if we have at least 1 sentence
         flushTimeoutRef.current = window.setTimeout(() => {
           if (segmentBufferRef.current.trim()) {
             shipSegment(segmentBufferRef.current);
             segmentBufferRef.current = '';
           }
-        }, 3000);
+        }, 2500);
       }
     } else {
-      // Real-time interim preview
       const currentStable = displayHistoryRef.current.join(" ");
       setLiveTurnText((currentStable + (currentStable ? " " : "") + text).trim());
-      silenceTimeoutRef.current = window.setTimeout(() => handleTranscription(text, true), 2000);
+      silenceTimeoutRef.current = window.setTimeout(() => handleTranscription(text, true), 1500);
     }
   }, []);
 
@@ -134,7 +127,8 @@ const App: React.FC = () => {
       if (!hasKey) await (window as any).aistudio.openSelectKey();
     } catch (e) {}
 
-    meetingIdRef.current = `ORBIT-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    // Persistent ID for this specific session
+    meetingIdRef.current = crypto.randomUUID();
     cumulativeSourceRef.current = '';
     segmentBufferRef.current = '';
     displayHistoryRef.current = [];
@@ -161,10 +155,7 @@ const App: React.FC = () => {
   const onStop = () => {
     if (silenceTimeoutRef.current) window.clearTimeout(silenceTimeoutRef.current);
     if (flushTimeoutRef.current) window.clearTimeout(flushTimeoutRef.current);
-    
-    if (segmentBufferRef.current.trim()) {
-      shipSegment(segmentBufferRef.current);
-    }
+    if (segmentBufferRef.current.trim()) shipSegment(segmentBufferRef.current);
     
     geminiServiceRef.current.stop();
     audioServiceRef.current.stop();
@@ -181,22 +172,22 @@ const App: React.FC = () => {
     <div className="fixed inset-0 bg-transparent pointer-events-none w-screen h-screen">
       {showTranscription && (isStreaming || currentDisplay) && (
         <Draggable initialPos={transPos} onPosChange={setTransPos}>
-          <div className="relative group max-w-[85vw] w-fit">
+          <div className="relative group max-w-[70vw] w-fit">
             {currentDisplay ? (
-              <div className="bg-black/85 backdrop-blur-2xl px-6 py-3 rounded-[1.5rem] border border-white/20 shadow-[0_16px_32px_-8px_rgba(0,0,0,0.8)] w-full ring-1 ring-white/10 transition-all flex items-center justify-center">
-                <p className="text-[20px] font-helvetica-thin text-white tracking-wide text-center leading-relaxed antialiased px-2 break-words max-w-full">
+              <div className="bg-black/90 backdrop-blur-3xl px-5 py-2.5 rounded-[1.25rem] border border-white/20 shadow-[0_12px_24px_-8px_rgba(0,0,0,0.8)] w-full ring-1 ring-white/10 flex items-center justify-center">
+                <p className="text-[17px] font-helvetica-thin text-white tracking-wide text-center leading-snug antialiased px-1 break-words max-w-full">
                   {currentDisplay}
                 </p>
               </div>
             ) : isStreaming && (
-              <div className="bg-black/70 backdrop-blur-xl px-8 h-[50px] rounded-full border border-white/10 flex items-center justify-center space-x-3 opacity-60 shadow-xl">
+              <div className="bg-black/70 backdrop-blur-xl px-6 h-[40px] rounded-full border border-white/10 flex items-center justify-center space-x-2.5 opacity-60 shadow-xl">
                 <div className="flex space-x-1">
-                  <div className={`w-2 h-2 rounded-full animate-bounce [animation-delay:-0.3s] ${isVADActive ? 'bg-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.9)]' : 'bg-white'}`} />
-                  <div className={`w-2 h-2 rounded-full animate-bounce [animation-delay:-0.15s] ${isVADActive ? 'bg-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.9)]' : 'bg-white'}`} />
-                  <div className={`w-2 h-2 rounded-full animate-bounce ${isVADActive ? 'bg-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.9)]' : 'bg-white'}`} />
+                  <div className={`w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:-0.3s] ${isVADActive ? 'bg-lime-400 shadow-[0_0_8px_rgba(163,230,53,0.9)]' : 'bg-white'}`} />
+                  <div className={`w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:-0.15s] ${isVADActive ? 'bg-lime-400 shadow-[0_0_8px_rgba(163,230,53,0.9)]' : 'bg-white'}`} />
+                  <div className={`w-1.5 h-1.5 rounded-full animate-bounce ${isVADActive ? 'bg-lime-400 shadow-[0_0_8px_rgba(163,230,53,0.9)]' : 'bg-white'}`} />
                 </div>
-                <span className={`text-[12px] uppercase tracking-[0.2em] font-black italic transition-colors ${isVADActive ? 'text-lime-400' : 'text-white/60'}`}>
-                  {isVADActive ? 'Listening' : 'Waiting'}
+                <span className={`text-[10px] uppercase tracking-[0.2em] font-black italic transition-colors ${isVADActive ? 'text-lime-400' : 'text-white/60'}`}>
+                  {isVADActive ? 'Live' : 'Ready'}
                 </span>
               </div>
             )}
