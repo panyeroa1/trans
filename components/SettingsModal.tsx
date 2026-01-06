@@ -18,8 +18,30 @@ interface SettingsModalProps {
 }
 
 const LANGUAGES = [
-  "English (US)", "French (France)", "Dutch (Netherlands)", "Medumba", "Baoulé", "Dioula", "Spanish", "German", "Chinese", "Japanese"
-].sort();
+  // Major Global
+  "English (US)", "English (UK)", "Spanish (Spain)", "Spanish (Latin America)",
+  "Portuguese (Brazil)", "Portuguese (Portugal)", "German (Germany)", "Italian",
+  "Russian", "Chinese (Mandarin)", "Chinese (Cantonese)", "Japanese", "Korean",
+  "Arabic (Standard)", "Hindi", "Bengali", "Urdu", "Indonesian", "Vietnamese", "Thai",
+  "Turkish", "Polish", "Ukrainian", "Persian",
+
+  // French & Dutch Variants
+  "French (France)", "French (Canada)", "French (Africa)", "French (Belgium)", "French (Swiss)",
+  "Dutch (Netherlands)", "Dutch (Belgium/Flemish)",
+
+  // African Dialects (Cameroon, Ivory Coast, West/Central Africa)
+  "Medumba (Cameroon)", "Baoulé (Ivory Coast)", "Dioula (Ivory Coast)", "Ewondo (Cameroon)",
+  "Duala (Cameroon)", "Bassa (Cameroon)", "Bamileke (Cameroon)", "Ghomala (Cameroon)",
+  "Fon (Benin)", "Wolof (Senegal)", "Yoruba (Nigeria)", "Igbo (Nigeria)", "Hausa (Nigeria)",
+  "Swahili (East Africa)", "Zulu (South Africa)", "Xhosa (South Africa)", "Amharic (Ethiopia)",
+
+  // Philippine Dialects
+  "Tagalog (Filipino)", "Cebuano (Bisaya)", "Ilocano", "Hiligaynon (Ilonggo)",
+  "Waray-Waray", "Kapampangan", "Pangasinan", "Bikol", "Chavacano", "Surigaonon",
+
+  // Others
+  "Greek", "Hebrew", "Swedish", "Norwegian", "Danish", "Finnish", "Hungarian", "Czech", "Romanian"
+].sort((a, b) => a.localeCompare(b));
 
 const SettingsModal: React.FC<SettingsModalProps> = (props) => {
   return (
