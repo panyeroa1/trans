@@ -20,14 +20,12 @@ const App: React.FC = () => {
   
   const meetingIdRef = useRef('');
   const cumulativeSourceRef = useRef('');
-  const currentSegmentIdRef = useRef<string | null>(null);
+  const sessionRecordIdRef = useRef<string | null>(null);
   const silenceTimeoutRef = useRef<number | null>(null);
   
-  // Throttle references for Supabase updates
   const lastSaveTimeRef = useRef<number>(0);
-  const pendingSaveRef = useRef<boolean>(false);
 
-  // Position management with Persistence
+  // Position management
   const [transPos, setTransPos] = useState(() => {
     const saved = localStorage.getItem('cs_trans_pos');
     return saved ? JSON.parse(saved) : { x: window.innerWidth / 2 - 200, y: window.innerHeight - 150 };
@@ -41,7 +39,6 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : { x: 50, y: 50 };
   });
 
-  // Save positions on change
   useEffect(() => localStorage.setItem('cs_trans_pos', JSON.stringify(transPos)), [transPos]);
   useEffect(() => localStorage.setItem('cs_settings_pos', JSON.stringify(settingsPos)), [settingsPos]);
   useEffect(() => localStorage.setItem('cs_control_pos', JSON.stringify(controlPos)), [controlPos]);
@@ -49,35 +46,31 @@ const App: React.FC = () => {
   const audioServiceRef = useRef(new AudioService());
   const geminiServiceRef = useRef(new GeminiLiveService());
 
-  const pushToDB = async (text: string, isFinal: boolean) => {
-    if (!text.trim()) return;
-
+  const pushToDB = async (currentSegment: string, isFinal: boolean) => {
+    if (!currentSegment.trim() && !isFinal) return;
     const now = Date.now();
-    if (!isFinal && (now - lastSaveTimeRef.current < 1000)) {
-      pendingSaveRef.current = true;
-      return;
-    }
+    if (!isFinal && (now - lastSaveTimeRef.current < 800)) return;
 
-    if (!currentSegmentIdRef.current) currentSegmentIdRef.current = crypto.randomUUID();
+    if (!sessionRecordIdRef.current) sessionRecordIdRef.current = crypto.randomUUID();
 
     setSyncStatus({ status: 'syncing' });
     lastSaveTimeRef.current = now;
-    pendingSaveRef.current = false;
+
+    const fullContent = (cumulativeSourceRef.current + (cumulativeSourceRef.current ? " " : "") + currentSegment.trim()).trim();
 
     const result = await SupabaseService.upsertTranscription({
-      id: currentSegmentIdRef.current,
+      id: sessionRecordIdRef.current,
       meeting_id: meetingIdRef.current,
       speaker_id: '00000000-0000-0000-0000-000000000000',
-      transcribe_text_segment: text.trim(),
-      full_transcription: cumulativeSourceRef.current + (cumulativeSourceRef.current ? " " : "") + text.trim(),
+      transcribe_text_segment: currentSegment.trim(),
+      full_transcription: fullContent,
       users_all: ['System']
     });
 
     if (result.success) {
       setSyncStatus({ status: 'success' });
       if (isFinal) {
-        cumulativeSourceRef.current += (cumulativeSourceRef.current ? " " : "") + text.trim();
-        currentSegmentIdRef.current = null;
+        cumulativeSourceRef.current = fullContent;
         lastSaveTimeRef.current = 0;
       }
     } else {
@@ -96,13 +89,14 @@ const App: React.FC = () => {
     } else {
       setLiveTurnText(text);
       pushToDB(text, false);
-      silenceTimeoutRef.current = window.setTimeout(() => handleTranscription(text, true), 2000);
+      silenceTimeoutRef.current = window.setTimeout(() => handleTranscription(text, true), 2500);
     }
   }, []);
 
   const onStart = async (source: AudioSource) => {
     setIsLoading(true);
     setSyncStatus({ status: 'idle' });
+    
     try {
       const hasKey = await (window as any).aistudio.hasSelectedApiKey();
       if (!hasKey) await (window as any).aistudio.openSelectKey();
@@ -110,7 +104,7 @@ const App: React.FC = () => {
 
     meetingIdRef.current = `ORBIT-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     cumulativeSourceRef.current = '';
-    currentSegmentIdRef.current = null;
+    sessionRecordIdRef.current = crypto.randomUUID();
     lastSaveTimeRef.current = 0;
     
     try {
@@ -124,6 +118,7 @@ const App: React.FC = () => {
       setIsStreaming(true);
     } catch (err) {
       console.error(err);
+      setIsLoading(false);
     } finally {
       setIsLoading(false);
     }
@@ -136,7 +131,7 @@ const App: React.FC = () => {
     setIsStreaming(false);
     setStream(null);
     setLiveTurnText('');
-    currentSegmentIdRef.current = null;
+    sessionRecordIdRef.current = null;
   };
 
   const currentDisplay = liveTurnText || (segments.length > 0 ? segments[0].text : "");
@@ -146,17 +141,20 @@ const App: React.FC = () => {
       {/* Subtitles Overlay */}
       {showTranscription && currentDisplay && (
         <Draggable initialPos={transPos} onPosChange={setTransPos}>
-          <div className="bg-black/90 backdrop-blur-3xl px-8 py-5 rounded-[2rem] border border-white/20 shadow-2xl min-w-[400px] max-w-[70vw] pointer-events-auto ring-1 ring-white/5">
-            <p className="text-[22px] font-helvetica-thin text-white tracking-wide text-center leading-relaxed antialiased">
-              {currentDisplay}
-            </p>
+          <div className="relative group">
+            <div className="absolute -inset-10 bg-black/30 backdrop-blur-md rounded-[4rem] opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10" />
+            <div className="bg-black/95 backdrop-blur-3xl px-10 py-6 rounded-[2.5rem] border border-white/20 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.8)] min-w-[440px] max-w-[70vw] ring-1 ring-white/10 transition-all">
+              <p className="text-[24px] font-helvetica-thin text-white tracking-wide text-center leading-relaxed antialiased">
+                {currentDisplay}
+              </p>
+            </div>
           </div>
         </Draggable>
       )}
 
       {/* Main Trigger Button */}
       <Draggable initialPos={controlPos} onPosChange={setControlPos} handleClass="drag-handle">
-        <div className="pointer-events-auto transition-transform hover:scale-105 active:scale-95">
+        <div className="transition-transform hover:scale-105 active:scale-95">
           <SpeakNowButton 
             onStart={onStart} onStop={onStop}
             isStreaming={isStreaming} isLoading={isLoading}
@@ -170,20 +168,18 @@ const App: React.FC = () => {
       {/* Settings Panel */}
       {isSettingsOpen && (
         <Draggable initialPos={settingsPos} onPosChange={setSettingsPos} handleClass="settings-drag-handle">
-          <div className="pointer-events-auto">
-            <SettingsModal 
-              onClose={() => setIsSettingsOpen(false)}
-              meetingId={meetingIdRef.current}
-              sourceLanguage={sourceLanguage}
-              setSourceLanguage={setSourceLanguage}
-              showTranscription={showTranscription}
-              setShowTranscription={setShowTranscription}
-              webhookUrl={webhookUrl}
-              setWebhookUrl={setWebhookUrl}
-              cumulativeSource={cumulativeSourceRef.current}
-              syncStatus={syncStatus}
-            />
-          </div>
+          <SettingsModal 
+            onClose={() => setIsSettingsOpen(false)}
+            meetingId={meetingIdRef.current}
+            sourceLanguage={sourceLanguage}
+            setSourceLanguage={setSourceLanguage}
+            showTranscription={showTranscription}
+            setShowTranscription={setShowTranscription}
+            webhookUrl={webhookUrl}
+            setWebhookUrl={setWebhookUrl}
+            cumulativeSource={cumulativeSourceRef.current}
+            syncStatus={syncStatus}
+          />
         </Draggable>
       )}
     </div>
@@ -229,7 +225,7 @@ const Draggable: React.FC<{ children: React.ReactNode; initialPos: { x: number, 
 
   return (
     <div 
-      className={`fixed cursor-grab active:cursor-grabbing z-[999] ${isDragging ? 'opacity-80 scale-[1.02] duration-0' : 'duration-150 transition-transform'}`} 
+      className={`fixed cursor-grab active:cursor-grabbing z-[999] pointer-events-auto ${isDragging ? 'opacity-80 scale-[1.02] duration-0' : 'duration-150 transition-transform'}`} 
       style={{ left: pos.x, top: pos.y, userSelect: isDragging ? 'none' : 'auto' }} 
       onMouseDown={onMouseDown}
     >

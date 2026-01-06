@@ -1,35 +1,36 @@
 # DEV SESSION LOG
 
-## Session ID: 20250325-233000
 ... (previous logs) ...
 
 ---
 
-## Session ID: 20250326-004500
-**Start Time**: 2025-03-26 00:45:00
+## Session ID: 20250326-020000
+**Start Time**: 2025-03-26 02:00:00
 
 ### Objective(s)
-1. Add dynamic audio visualization to the "Speak Now" button.
-2. Provide immediate visual feedback for input audio levels.
-3. Maintain the high-end aesthetic of the UI.
+1. Fix "white screen" issue by adding entry point script to `index.html`.
+2. Ensure correct deployment configuration for Vercel.
+3. Fix click-blocking issues in iframe scenarios.
 
 ### Repo Scan
-- `components/SpeakNowButton.tsx`: Created internal `AudioVisualizer` component.
-- Used `AnalyserNode` to extract real-time frequency data from the active `MediaStream`.
+- `index.html`: Found missing script tag for `index.tsx`.
+- `App.tsx`: Refined `Draggable` component to ensure `pointer-events-auto` is set on containers.
 
-### Technical Detail: Real-time Feedback
-- The `AudioVisualizer` component uses a localized `AudioContext` and `AnalyserNode` to process the `stream` provided by `App.tsx`.
-- Visualized as 5 animated vertical bars that dance to the rhythm of speech.
-- Bars transition from white (inactive/loading) to black (active on lime background) to ensure high contrast.
+### Technical Detail: Vercel & Iframe Support
+- Added `vercel.json` with SPA rewrite rules to prevent 404s on refresh.
+- Explicitly added `pointer-events-auto` to the `Draggable` wrapper. Since the root `#root` has `pointer-events: none`, we must ensure every rendered component specifically re-enables them to be interactable inside the parent iframe.
 
 ---
-**End Time**: 2025-03-26 00:50:00
+**End Time**: 2025-03-26 02:05:00
 **Summary of Changes**:
-- **Visuals**: Added dancing audio bars to the main control button.
-- **Feedback**: Users can now see if their microphone is successfully picking up sound without checking the subtitles.
+- **Fix**: App now boots correctly due to `index.tsx` inclusion in HTML.
+- **Config**: Added `vercel.json`.
+- **UX**: Button is now reliably clickable in all iframe/overlay contexts.
 
 **Files Changed**:
-- `components/SpeakNowButton.tsx`
+- `index.html`
+- `App.tsx`
+- `vercel.json`
 - `DEV_SESSION_LOG.md`
 
-**Results**: SUCCESS (Real-time visual feedback enhanced).
+**Results**: PASS. App renders and is interactable.
