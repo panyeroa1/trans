@@ -12,9 +12,6 @@ export class GeminiLiveService {
   private session: any = null;
   private processor: ScriptProcessorNode | null = null;
   private inputAudioContext: AudioContext | null = null;
-  private outputAudioContext: AudioContext | null = null;
-  private nextStartTime = 0;
-  private activeSources = new Set<AudioBufferSourceNode>();
 
   async startStreaming(
     stream: MediaStream, 
@@ -30,22 +27,18 @@ export class GeminiLiveService {
     const ai = new GoogleGenAI({ apiKey });
 
     this.inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-    this.outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     
     if (this.inputAudioContext.state === 'suspended') await this.inputAudioContext.resume();
-    if (this.outputAudioContext.state === 'suspended') await this.outputAudioContext.resume();
 
-    this.nextStartTime = 0;
-    
     const instruction = `High-Fidelity Verbatim Engine (EBURON.AI).
-MODE: INSTANT LEARNING & ADAPTATION.
+MODE: PURE TRANSCRIPTION (STT).
 
 CRITICAL INSTRUCTIONS:
-1. LOCK-ON: Instantly adapt to the speaker's language, accent, and dialect (${sourceLanguage}). 
-2. NO NORMALIZATION: Do not correct grammar, do not translate, do not "clean up" slang. Transcribe EXACTLY what is said immediately.
-3. PHONETIC PRECISION: If a speaker uses local Medumba, Tagalog, or regional variants, output the text in that dialect without hesitation.
-4. ZERO LATENCY: Stream every syllable as text. 
-5. OUTPUT: Pure text stream only. No labels.`;
+1. LOCK-ON: Instantly adapt to the speaker's language: ${sourceLanguage}. 
+2. NO SPEECH: You are a silent listener. Do not respond verbally. Do not translate. 
+3. VERBATIM: Transcribe EXACTLY what is said. No corrections.
+4. PHONETIC PRECISION: Support regional variants and dialects without hesitation.
+5. OUTPUT: Pure text stream of user input only.`;
 
     try {
       const sessionPromise = ai.live.connect({
@@ -69,30 +62,18 @@ CRITICAL INSTRUCTIONS:
           },
           onmessage: async (message: any) => {
             const inputTrans = message.serverContent?.inputTranscription;
-            const outputTrans = message.serverContent?.outputTranscription;
             
+            // Only handle user input transcription. 
+            // We ignore outputTranscription and modelTurn audio to remove translation/AI voice.
             if (inputTrans) {
               callbacks.onTranscription(inputTrans.text, !!message.serverContent.turnComplete);
-            } else if (outputTrans) {
-              callbacks.onTranscription(outputTrans.text, !!message.serverContent.turnComplete);
-            }
-
-            const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-            if (audioData && this.outputAudioContext) {
-              this.nextStartTime = Math.max(this.nextStartTime, this.outputAudioContext.currentTime);
-              const buffer = await AudioService.decodeAudioData(AudioService.decode(audioData), this.outputAudioContext, 24000, 1);
-              const sourceNode = this.outputAudioContext.createBufferSource();
-              sourceNode.buffer = buffer;
-              sourceNode.connect(this.outputAudioContext.destination);
-              sourceNode.start(this.nextStartTime);
-              this.nextStartTime += buffer.duration;
             }
           },
           onerror: (err: any) => callbacks.onError(err.message),
           onclose: () => callbacks.onClose()
         },
         config: {
-          responseModalities: [Modality.AUDIO],
+          responseModalities: [Modality.AUDIO], // Required for Live API connectivity
           inputAudioTranscription: {},
           outputAudioTranscription: {}, 
           systemInstruction: instruction
@@ -108,7 +89,6 @@ CRITICAL INSTRUCTIONS:
   stop() {
     if (this.processor) this.processor.disconnect();
     if (this.inputAudioContext) this.inputAudioContext.close();
-    if (this.outputAudioContext) this.outputAudioContext.close();
     if (this.session) this.session.close();
   }
 }

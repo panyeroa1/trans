@@ -12,6 +12,66 @@ interface SpeakNowButtonProps {
   stream: MediaStream | null;
 }
 
+const AudioVisualizer: React.FC<{ stream: MediaStream | null; isStreaming: boolean }> = ({ stream, isStreaming }) => {
+  const [amplitudes, setAmplitudes] = useState([0, 0, 0, 0, 0]);
+  const animationRef = useRef<number>(null);
+  const analyserRef = useRef<AnalyserNode>(null);
+  const contextRef = useRef<AudioContext>(null);
+
+  useEffect(() => {
+    if (isStreaming && stream) {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const analyser = audioContext.createAnalyser();
+      const source = audioContext.createMediaStreamSource(stream);
+      source.connect(analyser);
+      analyser.fftSize = 32;
+      
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      
+      analyserRef.current = analyser;
+      contextRef.current = audioContext;
+
+      const update = () => {
+        analyser.getByteFrequencyData(dataArray);
+        // Take a few samples from the frequency data
+        const newAmplitudes = [
+          dataArray[0] / 255,
+          dataArray[2] / 255,
+          dataArray[4] / 255,
+          dataArray[2] / 255,
+          dataArray[0] / 255,
+        ];
+        setAmplitudes(newAmplitudes);
+        animationRef.current = requestAnimationFrame(update);
+      };
+      
+      update();
+    } else {
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      if (contextRef.current) contextRef.current.close();
+      setAmplitudes([0, 0, 0, 0, 0]);
+    }
+
+    return () => {
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      if (contextRef.current) contextRef.current.close();
+    };
+  }, [isStreaming, stream]);
+
+  return (
+    <div className="flex items-end justify-center space-x-[2px] h-3 w-6">
+      {amplitudes.map((amp, i) => (
+        <div 
+          key={i} 
+          className={`w-[2px] rounded-full transition-all duration-75 ${isStreaming ? 'bg-black' : 'bg-white/30'}`}
+          style={{ height: `${Math.max(15, amp * 100)}%` }}
+        />
+      ))}
+    </div>
+  );
+};
+
 const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({ 
   onStart, 
   onStop, 
@@ -63,9 +123,11 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
           {isLoading ? (
             <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
           ) : (
-            <div className="flex items-center space-x-2">
-              <span className="text-lg">{isStreaming ? '⏹' : '🎤'}</span>
-              <span>{isStreaming ? 'Stop' : 'Speak Now'}</span>
+            <div className="flex items-center space-x-3">
+              <div className="flex items-center justify-center w-6 h-6">
+                {isStreaming ? <AudioVisualizer stream={stream} isStreaming={isStreaming} /> : <span className="text-lg">🎤</span>}
+              </div>
+              <span>{isStreaming ? 'Stop Session' : 'Speak Now'}</span>
             </div>
           )}
         </button>

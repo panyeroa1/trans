@@ -27,10 +27,24 @@ const App: React.FC = () => {
   const lastSaveTimeRef = useRef<number>(0);
   const pendingSaveRef = useRef<boolean>(false);
 
-  // Position management
-  const [transPos, setTransPos] = useState({ x: window.innerWidth / 2 - 200, y: window.innerHeight - 100 });
-  const [settingsPos, setSettingsPos] = useState({ x: window.innerWidth - 350, y: 30 });
-  const [controlPos, setControlPos] = useState({ x: 30, y: 30 });
+  // Position management with Persistence
+  const [transPos, setTransPos] = useState(() => {
+    const saved = localStorage.getItem('cs_trans_pos');
+    return saved ? JSON.parse(saved) : { x: window.innerWidth / 2 - 200, y: window.innerHeight - 150 };
+  });
+  const [settingsPos, setSettingsPos] = useState(() => {
+    const saved = localStorage.getItem('cs_settings_pos');
+    return saved ? JSON.parse(saved) : { x: window.innerWidth - 380, y: 50 };
+  });
+  const [controlPos, setControlPos] = useState(() => {
+    const saved = localStorage.getItem('cs_control_pos');
+    return saved ? JSON.parse(saved) : { x: 50, y: 50 };
+  });
+
+  // Save positions on change
+  useEffect(() => localStorage.setItem('cs_trans_pos', JSON.stringify(transPos)), [transPos]);
+  useEffect(() => localStorage.setItem('cs_settings_pos', JSON.stringify(settingsPos)), [settingsPos]);
+  useEffect(() => localStorage.setItem('cs_control_pos', JSON.stringify(controlPos)), [controlPos]);
 
   const audioServiceRef = useRef(new AudioService());
   const geminiServiceRef = useRef(new GeminiLiveService());
@@ -39,7 +53,6 @@ const App: React.FC = () => {
     if (!text.trim()) return;
 
     const now = Date.now();
-    // Throttling logic: If it's not final, only save if 1000ms has passed since last save
     if (!isFinal && (now - lastSaveTimeRef.current < 1000)) {
       pendingSaveRef.current = true;
       return;
@@ -65,7 +78,7 @@ const App: React.FC = () => {
       if (isFinal) {
         cumulativeSourceRef.current += (cumulativeSourceRef.current ? " " : "") + text.trim();
         currentSegmentIdRef.current = null;
-        lastSaveTimeRef.current = 0; // Reset for next segment
+        lastSaveTimeRef.current = 0;
       }
     } else {
       setSyncStatus({ status: 'error', message: result.error });
@@ -83,7 +96,6 @@ const App: React.FC = () => {
     } else {
       setLiveTurnText(text);
       pushToDB(text, false);
-      // Ensure we finalize if silence occurs
       silenceTimeoutRef.current = window.setTimeout(() => handleTranscription(text, true), 2000);
     }
   }, []);
@@ -130,12 +142,12 @@ const App: React.FC = () => {
   const currentDisplay = liveTurnText || (segments.length > 0 ? segments[0].text : "");
 
   return (
-    <div className="fixed inset-0 bg-transparent pointer-events-none">
+    <div className="fixed inset-0 bg-transparent pointer-events-none w-screen h-screen">
       {/* Subtitles Overlay */}
       {showTranscription && currentDisplay && (
         <Draggable initialPos={transPos} onPosChange={setTransPos}>
-          <div className="bg-black/80 backdrop-blur-3xl px-6 py-4 rounded-3xl border border-white/20 shadow-2xl min-w-[300px] max-w-[600px] pointer-events-auto">
-            <p className="text-[20px] font-helvetica-thin text-white tracking-wide text-center leading-relaxed">
+          <div className="bg-black/90 backdrop-blur-3xl px-8 py-5 rounded-[2rem] border border-white/20 shadow-2xl min-w-[400px] max-w-[70vw] pointer-events-auto ring-1 ring-white/5">
+            <p className="text-[22px] font-helvetica-thin text-white tracking-wide text-center leading-relaxed antialiased">
               {currentDisplay}
             </p>
           </div>
@@ -144,7 +156,7 @@ const App: React.FC = () => {
 
       {/* Main Trigger Button */}
       <Draggable initialPos={controlPos} onPosChange={setControlPos} handleClass="drag-handle">
-        <div className="pointer-events-auto">
+        <div className="pointer-events-auto transition-transform hover:scale-105 active:scale-95">
           <SpeakNowButton 
             onStart={onStart} onStop={onStop}
             isStreaming={isStreaming} isLoading={isLoading}
@@ -197,7 +209,10 @@ const Draggable: React.FC<{ children: React.ReactNode; initialPos: { x: number, 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (!isDragging) return;
-      const newPos = { x: e.clientX - offset.current.x, y: e.clientY - offset.current.y };
+      const newPos = { 
+        x: Math.max(0, Math.min(window.innerWidth - 100, e.clientX - offset.current.x)),
+        y: Math.max(0, Math.min(window.innerHeight - 50, e.clientY - offset.current.y))
+      };
       setPos(newPos);
       onPosChange?.(newPos);
     };
@@ -214,7 +229,7 @@ const Draggable: React.FC<{ children: React.ReactNode; initialPos: { x: number, 
 
   return (
     <div 
-      className={`fixed cursor-grab active:cursor-grabbing z-[999] transition-shadow ${isDragging ? 'shadow-2xl opacity-80' : ''}`} 
+      className={`fixed cursor-grab active:cursor-grabbing z-[999] ${isDragging ? 'opacity-80 scale-[1.02] duration-0' : 'duration-150 transition-transform'}`} 
       style={{ left: pos.x, top: pos.y, userSelect: isDragging ? 'none' : 'auto' }} 
       onMouseDown={onMouseDown}
     >

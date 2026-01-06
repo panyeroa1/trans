@@ -1,32 +1,35 @@
 # DEV SESSION LOG
 
 ## Session ID: 20250325-233000
-**Start Time**: 2025-03-25 23:30:00
-
-### Objective(s)
-1. Fix "Supabase Error: TypeError: Failed to fetch" occurring during high-frequency transcription updates.
-2. Implement throttling for database writes to reduce network congestion.
-3. Improve diagnostic feedback for network-level failures.
-
-### Repo Scan
-- `App.tsx`: High-frequency `pushToDB` calls detected (up to 10/sec).
-- `services/supabaseService.ts`: Standard fetch-based implementation lacks specific handling for browser connection pool exhaustion.
-
-### Technical Detail: Throttling for Real-Time Upserts
-- Problem: Gemini Live sends partial transcription segments very rapidly. Sending an `upsert` to Supabase for every packet exceeds the browser's maximum concurrent request limit (typically 6 per origin).
-- Solution: Introduced a 1000ms throttle in `App.tsx`. Partial updates are now merged and sent at most once per second.
-- Critical Path: `isFinal` updates bypass the throttle to ensure the final state of a sentence is always captured immediately.
+... (previous logs) ...
 
 ---
-**End Time**: 2025-03-25 23:40:00
+
+## Session ID: 20250326-004500
+**Start Time**: 2025-03-26 00:45:00
+
+### Objective(s)
+1. Add dynamic audio visualization to the "Speak Now" button.
+2. Provide immediate visual feedback for input audio levels.
+3. Maintain the high-end aesthetic of the UI.
+
+### Repo Scan
+- `components/SpeakNowButton.tsx`: Created internal `AudioVisualizer` component.
+- Used `AnalyserNode` to extract real-time frequency data from the active `MediaStream`.
+
+### Technical Detail: Real-time Feedback
+- The `AudioVisualizer` component uses a localized `AudioContext` and `AnalyserNode` to process the `stream` provided by `App.tsx`.
+- Visualized as 5 animated vertical bars that dance to the rhythm of speech.
+- Bars transition from white (inactive/loading) to black (active on lime background) to ensure high contrast.
+
+---
+**End Time**: 2025-03-26 00:50:00
 **Summary of Changes**:
-- **Congestion Fix**: Implemented 1s throttle for interim DB updates.
-- **Error Handling**: Enhanced `SupabaseService` to identify and report fetch failures specifically.
-- **Reliability**: UI now remains stable even during fast speech sessions.
+- **Visuals**: Added dancing audio bars to the main control button.
+- **Feedback**: Users can now see if their microphone is successfully picking up sound without checking the subtitles.
 
 **Files Changed**:
-- `App.tsx`
-- `services/supabaseService.ts`
+- `components/SpeakNowButton.tsx`
 - `DEV_SESSION_LOG.md`
 
-**Results**: SUCCESS (Network congestion resolved, transcription updates are now stable).
+**Results**: SUCCESS (Real-time visual feedback enhanced).
