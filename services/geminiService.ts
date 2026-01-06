@@ -27,7 +27,7 @@ export class GeminiLiveService {
   ) {
     const apiKey = process.env.API_KEY;
     if (!apiKey) {
-      callbacks.onError("API Key missing. Check your connection or select a valid key.");
+      callbacks.onError("API Key missing. Please use the Select API Key button in settings.");
       return;
     }
 
@@ -123,7 +123,7 @@ OPERATIONAL CONSTRAINTS:
           },
           onerror: (err: any) => {
             console.error("Gemini Socket Error:", err);
-            callbacks.onError(err.message || "Network error. Please verify your API key and network.");
+            callbacks.onError(err.message || "Network error. Ensure a paid API key is selected in settings.");
           },
           onclose: () => {
             callbacks.onClose();
@@ -142,7 +142,7 @@ OPERATIONAL CONSTRAINTS:
 
       this.session = await sessionPromise;
     } catch (err: any) {
-      callbacks.onError(err.message || "Failed to establish Gemini connection.");
+      callbacks.onError(err.message || "Failed to establish Gemini connection. Check your API key selection.");
     }
   }
 

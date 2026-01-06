@@ -1,4 +1,3 @@
-
 export enum AudioSource {
   MIC = 'mic',
   INTERNAL = 'internal',
@@ -119,7 +118,9 @@ export class AudioService {
     const l = float32Array.length;
     const int16 = new Int16Array(l);
     for (let i = 0; i < l; i++) {
-      int16[i] = Math.max(-1, Math.min(1, float32Array[i])) * 32768;
+      // Use 32767 to safely stay within Int16 range (-32768 to 32767)
+      const s = Math.max(-1, Math.min(1, float32Array[i]));
+      int16[i] = s < 0 ? s * 32768 : s * 32767;
     }
     return {
       data: this.encode(new Uint8Array(int16.buffer)),
