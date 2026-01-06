@@ -22,7 +22,30 @@ interface SettingsModalProps {
 }
 
 const LANGUAGES = [
-  "English (US)", "English (UK)", "Spanish (Spain)", "Portuguese (Brazil)", "German (Germany)", "Italian (Italy)", "Japanese", "Korean", "Chinese (Mandarin)", "French (France)", "Arabic", "Hindi", "Russian"
+  // Global Standards
+  "English (US)", "English (UK)", "English (Australia)", "English (Canada)",
+  "Spanish (Spain)", "Spanish (Mexico)", "Portuguese (Brazil)", "Portuguese (Portugal)",
+  "German (Germany)", "Italian (Italy)", "Japanese", "Korean", "Chinese (Mandarin)",
+  "Chinese (Cantonese)", "French (France)", "Arabic (Modern Standard)", "Hindi", "Russian",
+  
+  // Dutch Regions
+  "Dutch (Netherlands)", "Dutch (Belgium/Flemish)", "Dutch (Suriname)", "Afrikaans",
+  
+  // Philippines Dialects & Languages
+  "Filipino/Tagalog (Philippines)", "Cebuano (Philippines)", "Ilocano (Philippines)", 
+  "Hiligaynon (Philippines)", "Bicolano (Philippines)", "Waray (Philippines)", 
+  "Kapampangan (Philippines)", "Pangasinan (Philippines)", "Maranao (Philippines)", 
+  "Maguindanaon (Philippines)", "Tausug (Philippines)", "Chavacano (Philippines)",
+  
+  // Cameroon Dialects & Languages
+  "French (Cameroon)", "English (Cameroon)", "Pidgin English (Cameroon)", 
+  "Ewondo (Cameroon)", "Duala (Cameroon)", "Fulfulde (Cameroon)", 
+  "Bamileke (Cameroon)", "Basaa (Cameroon)", "Medumba (Cameroon)",
+  
+  // Ivory Coast (Côte d'Ivoire) Dialects & Languages
+  "French (Ivory Coast)", "Baoulé (Ivory Coast)", "Dioula (Ivory Coast)", 
+  "Dan (Ivory Coast)", "Bété (Ivory Coast)", "Anyin (Ivory Coast)", 
+  "Senoufo (Ivory Coast)", "Dida (Ivory Coast)"
 ].sort((a, b) => a.localeCompare(b));
 
 const SettingsModal: React.FC<SettingsModalProps> = (props) => {
