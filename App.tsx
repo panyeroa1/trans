@@ -3,7 +3,7 @@ import SpeakNowButton from './components/SpeakNowButton';
 import SettingsModal from './components/SettingsModal';
 import { AudioService, AudioSource, SmartSegmenter } from './services/audioService';
 import { GeminiLiveService } from './services/geminiService';
-import { SupabaseService } from './services/supabaseService';
+import { SupabaseService, supabase } from './services/supabaseService';
 
 const App: React.FC = () => {
   const [isStreaming, setIsStreaming] = useState(false);
@@ -14,8 +14,13 @@ const App: React.FC = () => {
   const [sourceLanguage, setSourceLanguage] = useState('English (US)');
   const [learningContext, setLearningContext] = useState(() => localStorage.getItem('cs_learning_context') || '');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isTranslatorActive, setIsTranslatorActive] = useState(false);
   
-  // Unique User ID for this instance
+  // Collaborative State
+  const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
+  const [participants, setParticipants] = useState<string[]>([]);
+  const lastSpeakerUpdateRef = useRef<number>(0);
+
   const [userId] = useState(() => {
     let uid = localStorage.getItem('eburon_user_id');
     if (!uid) {
@@ -25,7 +30,6 @@ const App: React.FC = () => {
     return uid;
   });
 
-  // Meeting ID (The room)
   const [meetingId, setMeetingId] = useState(() => {
     let sid = sessionStorage.getItem('eburon_session_v3');
     if (!sid) {
@@ -34,10 +38,6 @@ const App: React.FC = () => {
     }
     return sid;
   });
-
-  // Collaborative State
-  const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
-  const [participants, setParticipants] = useState<string[]>([userId]);
 
   const [showTranscription, setShowTranscription] = useState(true);
   const [segments, setSegments] = useState<string>("");
@@ -51,7 +51,6 @@ const App: React.FC = () => {
   const lastActivityTimeRef = useRef<number>(Date.now());
   const silenceTimeoutRef = useRef<number | null>(null);
   const flushTimeoutRef = useRef<number | null>(null); 
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   const [transPos, setTransPos] = useState(() => {
     const saved = localStorage.getItem('cs_trans_pos_v2');
@@ -66,19 +65,61 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : { x: 40, y: 40 };
   });
 
-  useEffect(() => localStorage.setItem('cs_trans_pos_v2', JSON.stringify(transPos)), [transPos]);
-  useEffect(() => localStorage.setItem('cs_settings_pos_v2', JSON.stringify(settingsPos)), [settingsPos]);
-  useEffect(() => localStorage.setItem('cs_control_pos_v2', JSON.stringify(controlPos)), [controlPos]);
-  useEffect(() => localStorage.setItem('cs_learning_context', learningContext), [learningContext]);
-  useEffect(() => sessionStorage.setItem('eburon_session_v3', meetingId), [meetingId]);
-
   const audioServiceRef = useRef(new AudioService());
   const geminiServiceRef = useRef(new GeminiLiveService());
+
+  useEffect(() => {
+    localStorage.setItem('cs_trans_pos_v2', JSON.stringify(transPos));
+    localStorage.setItem('cs_settings_pos_v2', JSON.stringify(settingsPos));
+    localStorage.setItem('cs_control_pos_v2', JSON.stringify(controlPos));
+    localStorage.setItem('cs_learning_context', learningContext);
+    sessionStorage.setItem('eburon_session_v3', meetingId);
+  }, [transPos, settingsPos, controlPos, learningContext, meetingId]);
+
+  // Supabase Real-time Listener
+  useEffect(() => {
+    const channel = supabase
+      .channel(`room:${meetingId}`)
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'transcriptions',
+        filter: `meeting_id=eq.${meetingId}` 
+      }, (payload) => {
+        const data = payload.new as any;
+        
+        // 1. Update Speaker State (to disable local mic if someone else is talking)
+        if (data.speaker_id !== userId) {
+          setActiveSpeakerId(data.speaker_id);
+          lastSpeakerUpdateRef.current = Date.now();
+        }
+
+        // 2. Feed Translator if active
+        if (isTranslatorActive && data.speaker_id !== userId) {
+          geminiServiceRef.current.sendTranslationText(data.transcribe_text_segment);
+        }
+
+        // 3. Update global participants list from payload
+        if (data.users_all) setParticipants(data.users_all);
+      })
+      .subscribe();
+
+    const interval = setInterval(() => {
+      // Release speaker lock if no updates for 6 seconds
+      if (Date.now() - lastSpeakerUpdateRef.current > 6000) {
+        setActiveSpeakerId(null);
+      }
+    }, 1000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, [meetingId, userId, isTranslatorActive]);
 
   const shipSegment = async (text: string) => {
     if (!text.trim()) return;
     const cleanText = text.trim();
-    
     const previousHistory = cumulativeSourceRef.current;
     const newHistory = (previousHistory + (previousHistory ? " " : "") + cleanText).trim();
     cumulativeSourceRef.current = newHistory;
@@ -90,15 +131,13 @@ const App: React.FC = () => {
       speaker_id: userId,
       transcribe_text_segment: cleanText,
       full_transcription: newHistory,
-      users_all: participants
+      users_all: Array.from(new Set([...participants, userId]))
     });
-
     setSyncStatus({ status: result.success ? 'success' : 'error', message: result.error });
   };
 
   const handleTranscription = useCallback((text: string, isFinal: boolean) => {
     if (!text.trim()) return;
-
     const now = Date.now();
     const pauseDuration = now - lastActivityTimeRef.current;
     lastActivityTimeRef.current = now;
@@ -109,13 +148,8 @@ const App: React.FC = () => {
     if (isFinal) {
       const trimmed = text.trim();
       segmentBufferRef.current = (segmentBufferRef.current + " " + trimmed).trim();
-      
       let newDisplay = (displayBufferRef.current + (displayBufferRef.current ? " " : "") + trimmed).trim();
-      
-      if (newDisplay.length > 500) {
-        newDisplay = trimmed;
-      }
-      
+      if (newDisplay.length > 500) newDisplay = trimmed;
       displayBufferRef.current = newDisplay;
       setSegments(newDisplay);
       setLiveTurnText('');
@@ -138,6 +172,10 @@ const App: React.FC = () => {
   }, [meetingId, userId, participants]);
 
   const onStart = async (source: AudioSource) => {
+    if (isTranslatorActive) {
+      setErrorMessage("Translator is active. Stop it to speak.");
+      return;
+    }
     setIsLoading(true);
     setErrorMessage(null);
     setSegments('');
@@ -145,27 +183,18 @@ const App: React.FC = () => {
     segmentBufferRef.current = '';
 
     try {
-      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
-      if (!hasKey) await (window as any).aistudio.openSelectKey();
-    } catch (e) {}
-
-    try {
       const mediaStream = await audioServiceRef.current.getStream(source);
       setStream(mediaStream);
       await geminiServiceRef.current.startStreaming(mediaStream, {
         onTranscription: handleTranscription,
         onVADChange: (active) => setIsVADActive(active),
-        onError: (err) => {
-          setErrorMessage(err);
-          onStop();
-        },
+        onError: (err) => { setErrorMessage(err); onStop(); },
         onClose: () => onStop()
       }, sourceLanguage, learningContext);
       setIsStreaming(true);
       setActiveSpeakerId(userId);
     } catch (err: any) {
-      console.error(err);
-      setErrorMessage(err.message || "Permission denied. Please allow device access.");
+      setErrorMessage(err.message || "Permission denied.");
       setActiveSpeakerId(null);
       setIsStreaming(false);
     } finally {
@@ -186,6 +215,24 @@ const App: React.FC = () => {
     setActiveSpeakerId(null);
   };
 
+  const toggleTranslator = async () => {
+    if (isTranslatorActive) {
+      geminiServiceRef.current.stopTranslator();
+      setIsTranslatorActive(false);
+    } else {
+      if (isStreaming) onStop();
+      setIsLoading(true);
+      try {
+        await geminiServiceRef.current.startTranslatorSession(sourceLanguage);
+        setIsTranslatorActive(true);
+      } catch (err: any) {
+        setErrorMessage("Translator start failed: " + err.message);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  };
+
   const subtitleStyle: React.CSSProperties = {
     textShadow: '0 2px 8px rgba(0,0,0,0.9), 0 0 1px rgba(0,0,0,1)',
     WebkitFontSmoothing: 'antialiased'
@@ -193,7 +240,6 @@ const App: React.FC = () => {
 
   return (
     <div className="fixed inset-0 bg-transparent pointer-events-none w-screen h-screen overflow-hidden">
-      {/* Error Message Toast */}
       {errorMessage && (
         <div className="fixed top-8 left-1/2 -translate-x-1/2 bg-red-500/90 text-white px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-widest shadow-2xl backdrop-blur-xl pointer-events-auto z-[9999] animate-in fade-in slide-in-from-top-4">
           ⚠️ {errorMessage}
@@ -206,19 +252,10 @@ const App: React.FC = () => {
           <div className="relative group w-screen flex flex-col items-center px-16">
             <div className={`relative w-full flex items-end justify-center min-h-[120px] transition-all duration-500 ${!segments && !liveTurnText && !isStreaming ? 'opacity-0' : 'opacity-100'}`}>
               <div className="w-full text-center">
-                <p 
-                  style={subtitleStyle}
-                  className="text-[22px] font-helvetica-thin tracking-widest leading-[1.7] antialiased text-white break-words"
-                >
+                <p style={subtitleStyle} className="text-[22px] font-helvetica-thin tracking-widest leading-[1.7] antialiased text-white break-words">
                   {segments}
-                  {liveTurnText && (
-                    <span className="ml-2 text-lime-400/90 italic transition-all duration-300">
-                      {liveTurnText}
-                    </span>
-                  )}
-                  {isStreaming && !segments && !liveTurnText && (
-                    <span className="text-zinc-500 opacity-40 text-[14px] uppercase tracking-[0.3em]">Syncing Room...</span>
-                  )}
+                  {liveTurnText && <span className="ml-2 text-lime-400/90 italic">{liveTurnText}</span>}
+                  {isStreaming && !segments && !liveTurnText && <span className="text-zinc-500 opacity-40 text-[14px] uppercase tracking-[0.3em]">Syncing Room...</span>}
                 </p>
               </div>
             </div>
@@ -234,7 +271,7 @@ const App: React.FC = () => {
           audioSource={audioSource} setAudioSource={setAudioSource}
           openSettings={() => setIsSettingsOpen(!isSettingsOpen)}
           stream={stream}
-          isHost={activeSpeakerId === userId || activeSpeakerId === null}
+          isHost={!isTranslatorActive && (activeSpeakerId === userId || activeSpeakerId === null)}
         />
       </Draggable>
 
@@ -242,19 +279,14 @@ const App: React.FC = () => {
         <Draggable initialPos={settingsPos} onPosChange={setSettingsPos} handleClass="settings-drag-handle">
           <SettingsModal 
             onClose={() => setIsSettingsOpen(false)}
-            userId={userId}
-            meetingId={meetingId}
-            setMeetingId={setMeetingId}
-            participants={participants}
-            setParticipants={setParticipants}
-            sourceLanguage={sourceLanguage}
-            setSourceLanguage={setSourceLanguage}
-            learningContext={learningContext}
-            setLearningContext={setLearningContext}
-            showTranscription={showTranscription}
-            setShowTranscription={setShowTranscription}
-            cumulativeSource={cumulativeSourceRef.current}
-            syncStatus={syncStatus}
+            userId={userId} meetingId={meetingId} setMeetingId={setMeetingId}
+            participants={participants} setParticipants={setParticipants}
+            sourceLanguage={sourceLanguage} setSourceLanguage={setSourceLanguage}
+            learningContext={learningContext} setLearningContext={setLearningContext}
+            showTranscription={showTranscription} setShowTranscription={setShowTranscription}
+            cumulativeSource={cumulativeSourceRef.current} syncStatus={syncStatus}
+            isTranslatorActive={isTranslatorActive} toggleTranslator={toggleTranslator}
+            translatorAnalyser={geminiServiceRef.current.getTranslatorAnalyser()}
           />
         </Draggable>
       )}
@@ -299,11 +331,7 @@ const Draggable: React.FC<{ children: React.ReactNode; initialPos: { x: number, 
   }, [isDragging]);
 
   return (
-    <div 
-      className={`fixed cursor-grab active:cursor-grabbing z-[999] pointer-events-auto ${isDragging ? 'opacity-70 scale-[1.02] duration-0' : 'duration-300 transition-all'}`} 
-      style={{ left: pos.x, top: pos.y }} 
-      onMouseDown={onMouseDown}
-    >
+    <div className={`fixed cursor-grab active:cursor-grabbing z-[999] pointer-events-auto ${isDragging ? 'opacity-70 scale-[1.02] duration-0' : 'duration-300 transition-all'}`} style={{ left: pos.x, top: pos.y }} onMouseDown={onMouseDown}>
       {children}
     </div>
   );
