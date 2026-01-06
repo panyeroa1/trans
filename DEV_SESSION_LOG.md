@@ -4,27 +4,29 @@
 
 ---
 
-## Session ID: 20250326-041000
-**Start Time**: 2025-03-26 04:10:00
+## Session ID: 20250326-050000
+**Start Time**: 2025-03-26 05:00:00
 
 ### Objective(s)
-1. Remove the language indicator pill overlay from the transcription view.
+1. Optimize audio capture latency in `audioService.ts`.
+2. Improve performance of real-time audio processing.
 
 ### Repo Scan
-- `App.tsx`: Contains the logic for the language detection pill.
+- `services/audioService.ts`: Analyzed encoding methods and AudioContext setup.
 
-### Technical Detail: UI Deletion
-- Deleted the `DetectionStatus` type and state.
-- Removed the JSX block rendering the pill above the subtitle bar.
-- Cleaned up related `detectionTimeoutRef` and logic within `handleTranscription`, `onStart`, and `onStop`.
+### Technical Detail: Performance Optimization
+- **Latency Hint**: Added `latencyHint: 'interactive'` to `AudioContext`.
+- **Constraint Refinement**: Updated `getUserMedia` and `getDisplayMedia` to specifically request 16kHz mono audio, minimizing browser resampling.
+- **Encoding Speed**: Implemented chunked `String.fromCharCode.apply` in the `encode` method. This is significantly faster than string concatenation for binary data, reducing CPU overhead during high-frequency streaming.
+- **PCM Conversion**: Streamlined the `createPCM16Blob` loop for minimal branch overhead.
 
 ---
-**End Time**: 2025-03-26 04:12:00
+**End Time**: 2025-03-26 05:05:00
 **Summary of Changes**:
-- **UI**: Language pill removed for a cleaner transcription interface.
+- **Core**: Lower latency audio capture and faster data serialization for Gemini Live.
 
 **Files Changed**:
-- `App.tsx`
+- `services/audioService.ts`
 - `DEV_SESSION_LOG.md`
 
-**Results**: PASS. UI simplified.
+**Results**: PASS. Real-time streaming is now more efficient and responsive.

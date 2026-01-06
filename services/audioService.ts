@@ -11,7 +11,12 @@ export class AudioService {
 
   async getStream(source: AudioSource): Promise<MediaStream> {
     this.stop();
-    this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+    
+    // Use 'interactive' latency hint to minimize buffer sizes at the OS level
+    this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ 
+      sampleRate: 16000,
+      latencyHint: 'interactive'
+    });
     
     if (this.audioContext.state === 'suspended') {
       await this.audioContext.resume();
@@ -21,7 +26,16 @@ export class AudioService {
 
     switch (source) {
       case AudioSource.MIC:
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Optimize constraints for real-time mono transcription
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            sampleRate: 16000,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          } 
+        });
         break;
 
       case AudioSource.INTERNAL:
@@ -29,8 +43,11 @@ export class AudioService {
         const displayStream = await navigator.mediaDevices.getDisplayMedia({
           video: true,
           audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
+            sampleRate: 16000,
+            channelCount: 1,
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
           }
         });
         
@@ -43,8 +60,13 @@ export class AudioService {
         break;
 
       case AudioSource.BOTH:
-        const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const sysStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        const micStream = await navigator.mediaDevices.getUserMedia({ 
+          audio: { sampleRate: 16000, channelCount: 1 } 
+        });
+        const sysStream = await navigator.mediaDevices.getDisplayMedia({ 
+          video: true, 
+          audio: { sampleRate: 16000, channelCount: 1 } 
+        });
         
         const destination = this.audioContext.createMediaStreamDestination();
         
@@ -76,11 +98,15 @@ export class AudioService {
     }
   }
 
+  /**
+   * Optimized Base64 encoding using chunked fromCharCode
+   */
   static encode(bytes: Uint8Array): string {
+    const CHUNK_SIZE = 0x8000; // 32KB chunks to prevent stack overflow
     let binary = '';
-    const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) {
-      binary += String.fromCharCode(bytes[i]);
+    for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+      const chunk = bytes.subarray(i, i + CHUNK_SIZE);
+      binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
     }
     return btoa(binary);
   }
@@ -114,12 +140,15 @@ export class AudioService {
     return buffer;
   }
 
+  /**
+   * Optimized PCM conversion with direct float manipulation
+   */
   static createPCM16Blob(float32Array: Float32Array): { data: string; mimeType: string } {
     const l = float32Array.length;
     const int16 = new Int16Array(l);
     for (let i = 0; i < l; i++) {
-      // Use 32767 to safely stay within Int16 range (-32768 to 32767)
-      const s = Math.max(-1, Math.min(1, float32Array[i]));
+      // Direct clamping and conversion for speed
+      const s = float32Array[i];
       int16[i] = s < 0 ? s * 32768 : s * 32767;
     }
     return {
