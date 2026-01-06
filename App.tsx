@@ -104,7 +104,11 @@ const App: React.FC = () => {
   const [targetLanguage, setTargetLanguage] = useState("English (US)");
   const [showTranscription, setShowTranscription] = useState(true);
   
-  const [buttonPosition, setButtonPosition] = useState({ x: window.innerWidth / 2 - 150, y: window.innerHeight / 2 + 50 });
+  // Adjusted initial position to be centered bottom
+  const [buttonPosition, setButtonPosition] = useState({ 
+    x: window.innerWidth / 2 - 155, 
+    y: window.innerHeight - 100 
+  });
   const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
 
   const audioServiceRef = useRef(new AudioService());
@@ -196,14 +200,12 @@ const App: React.FC = () => {
           setCurrentSpeaker(speaker);
           setCurrentEmotion(emotion);
           
-          // Update the live turn text for real-time visibility in God-view
           if (!isFinal) {
             setLiveTurnText(cleanSource);
           }
 
           setSegments(prev => {
             const lastSeg = prev[prev.length - 1];
-            // If we have an active turn that isn't final, and it matches the current turn ID, update it
             if (lastSeg && !lastSeg.isFinal && currentTurnIdRef.current === lastSeg.id) {
               const updated = [...prev];
               updated[updated.length - 1] = {
@@ -217,7 +219,6 @@ const App: React.FC = () => {
               };
               return updated;
             } else {
-              // Start a new turn
               const newId = Math.random().toString(36).substring(2, 9);
               currentTurnIdRef.current = newId;
               const newSegment: TranscriptionSegment = {
@@ -233,10 +234,9 @@ const App: React.FC = () => {
             }
           });
 
-          // Finalize turn
           if (isFinal) {
             setCumulativeSource(prev => prev + (prev ? " " : "") + cleanSource);
-            setLiveTurnText(""); // Clear live text since it's now in cumulative
+            setLiveTurnText("");
             pushToWebhook(cleanSource, emotion, speaker, translate ? 'translation' : 'transcription', cleanTranslation);
             currentTurnIdRef.current = null; 
           }
@@ -290,12 +290,17 @@ const App: React.FC = () => {
       {showTranscription && (
         <div 
           className={`fixed z-50 pointer-events-none flex justify-center items-center transition-opacity duration-500 ${segments.length > 0 ? 'opacity-100' : 'opacity-0'}`}
-          style={{ left: buttonPosition.x, top: buttonPosition.y - 180, width: '800px', transform: 'translateX(-40%)' }}
+          style={{ 
+            left: '50%', 
+            bottom: '160px', 
+            width: '1000px', 
+            transform: 'translateX(-50%)' 
+          }}
         >
-          <div className="inline-flex flex-wrap justify-center items-center gap-x-3 gap-y-2 max-w-full bg-black/25 backdrop-blur-xl px-8 py-3 rounded-3xl border border-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.4)] transition-all duration-500 overflow-hidden">
-            {segments.slice(-5).map((seg, idx) => (
-              <div key={seg.id} className={`flex items-center space-x-2 transition-all duration-700 ease-out transform ${seg.isNew ? 'scale-105 translate-y-[-2px] opacity-100' : 'scale-100 translate-y-0 opacity-80'}`}>
-                {(idx === 0 || segments.slice(-5)[idx-1].speaker !== seg.speaker) && (
+          <div className="inline-flex flex-wrap justify-center items-center gap-x-4 gap-y-2 max-w-full bg-black/30 backdrop-blur-2xl px-10 py-5 rounded-[2.5rem] border border-white/10 shadow-[0_30px_80px_rgba(0,0,0,0.6)] transition-all duration-500 overflow-hidden">
+            {segments.slice(-3).map((seg, idx) => (
+              <div key={seg.id} className={`flex items-center space-x-3 transition-all duration-700 ease-out transform ${seg.isNew ? 'scale-105 opacity-100' : 'scale-100 opacity-70'}`}>
+                {(idx === 0 || segments.slice(-3)[idx-1].speaker !== seg.speaker) && (
                   <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter shadow-sm flex-shrink-0" style={{ backgroundColor: SPEAKER_COLORS[getSpeakerIndex(seg.speaker)], color: '#000' }}>{seg.speaker}</span>
                 )}
                 <TypewriterText 
@@ -319,7 +324,6 @@ const App: React.FC = () => {
           onPositionChange={setButtonPosition}
           initialPosition={buttonPosition}
           stream={activeStream}
-          // Settings Props
           audioSource={audioSource}
           setAudioSource={setAudioSource}
           translationEnabled={translationEnabled}

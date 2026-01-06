@@ -11,7 +11,6 @@ interface SpeakNowButtonProps {
   onPositionChange?: (pos: { x: number, y: number }) => void;
   initialPosition?: { x: number, y: number };
   stream: MediaStream | null;
-  // Settings props
   audioSource: AudioSource;
   setAudioSource: (src: AudioSource) => void;
   translationEnabled: boolean;
@@ -30,30 +29,9 @@ interface SpeakNowButtonProps {
 }
 
 const LANGUAGES = [
-  // GLOBAL MAJOR
-  "English (US)", "English (UK)", "English (Australia)", "English (Canada)", "English (India)",
-  "Spanish (Spain)", "Spanish (Mexico)", "Spanish (Latin America)", "Spanish (Argentina)",
-  "French (France)", "French (Canada)", "German (Germany)", "German (Austria)", "German (Switzerland)",
-  "Chinese (Mandarin/Simplified)", "Chinese (Cantonese/Traditional)", "Chinese (Taiwanese)",
-  "Japanese", "Korean", "Russian", "Arabic (Standard)", "Arabic (Egyptian)", "Arabic (Gulf)", "Arabic (Maghrebi)", "Arabic (Levantine)",
-  "Portuguese (Brazil)", "Portuguese (Portugal)", "Italian", "Hindi", "Bengali", "Punjabi", "Marathi", "Telugu", "Tamil", "Gujarati", "Urdu", "Kannada", "Odia", "Malayalam",
-  "Vietnamese", "Thai", "Indonesian", "Malay", "Turkish", "Persian (Farsi)", "Hebrew", "Polish", "Ukrainian", "Romanian", "Greek", "Czech", "Hungarian", "Swedish", "Norwegian", "Danish", "Finnish",
-  
-  // DUTCH & DIALECTS (Netherlands/Belgium)
-  "Dutch (Netherlands)", "Dutch (Noord-Holland)", "Dutch (Zuid-Holland)", "Dutch (Brabants)", "Dutch (Limburgs)", "Dutch (Gronings)", "Dutch (Twents)", "Dutch (Fries/Frisian)", "Dutch (Zeeuws)",
-  "Dutch (Belgium/Flemish)", "Dutch (Antwerps)", "Dutch (West-Vlaams)", "Afrikaans",
-  
-  // PHILIPPINES & DIALECTS
-  "Tagalog (Filipino)", "Cebuano (Bisaya)", "Ilocano", "Hiligaynon (Ilonggo)", "Waray-Waray", "Kapampangan", "Bikol (Central)", "Pangasinan", "Maranao", "Maguindanao", "Chavacano", "Tausug", "Kinaray-a", "Surigaonon", "Masbateño", "Ibanag", "Aklanon",
-  
-  // CAMEROON & DIALECTS
-  "Cameroonian Pidgin English", "French (Cameroon)", "English (Cameroon)", "Ewondo", "Duala", "Basaa", "Bamileke (Ghomala')", "Bamileke (Fe'fe')", "Fulfulde (Cameroon)", "Bulu", "Bakweri", "Medumba", "Kom", "Ejagham",
-  
-  // AFRICA GENERAL
-  "Swahili (Kenya/Tanzania)", "Amharic", "Yoruba", "Igbo", "Hausa", "Oromo", "Zulu", "Xhosa", "Shona", "Tigrinya", "Wolof", "Bambara", "Twi", "Lingala", "Luganda", "Somali",
-  
-  // OTHERS
-  "Maori", "Hawaiian", "Quechua", "Guarani", "Icelandic", "Irish (Gaelic)", "Welsh", "Basque", "Catalan", "Galician", "Slovak", "Slovenian", "Croatian", "Serbian", "Bulgarian", "Lithuanian", "Latvian", "Estonian", "Kazakh", "Uzbek", "Azerbaijani", "Georgia", "Armenian", "Mongolian", "Khmer", "Lao", "Burmese", "Sinhala", "Nepali", "Pashto"
+  "English (US)", "English (UK)", "Spanish (Spain)", "French (France)", "Dutch (Netherlands)",
+  "German (Germany)", "Chinese (Mandarin)", "Japanese", "Korean", "Italian", "Portuguese (Brazil)",
+  "Hindi", "Arabic (Standard)", "Russian", "Tagalog (Filipino)", "Medumba", "Baoulé", "Dioula"
 ].sort((a, b) => a.localeCompare(b));
 
 const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({ 
@@ -81,12 +59,14 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
   liveTurnText
 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [position, setPosition] = useState(initialPosition);
   const [amplitudes, setAmplitudes] = useState<number[]>(new Array(20).fill(2));
   
   const dragRef = useRef<{ offsetX: number, offsetY: number } | null>(null);
   const buttonContainerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
   const liveBoxEndRef = useRef<HTMLDivElement>(null);
 
@@ -97,18 +77,28 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
   }, [segments, cumulativeSource, liveTurnText]);
 
   useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
     let audioCtx: AudioContext | null = null;
-    let source: MediaStreamAudioSourceNode | null = null;
+    let sourceNode: MediaStreamAudioSourceNode | null = null;
     let analyzer: AnalyserNode | null = null;
 
     if (stream && isStreaming) {
       audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       if (audioCtx.state === 'suspended') audioCtx.resume();
-      source = audioCtx.createMediaStreamSource(stream);
+      sourceNode = audioCtx.createMediaStreamSource(stream);
       analyzer = audioCtx.createAnalyser();
       analyzer.fftSize = 256; 
       analyzer.smoothingTimeConstant = 0.75; 
-      source.connect(analyzer);
+      sourceNode.connect(analyzer);
 
       const bufferLength = analyzer.frequencyBinCount;
       const dataArray = new Uint8Array(bufferLength);
@@ -118,20 +108,13 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
         analyzer.getByteFrequencyData(dataArray);
         const barsCount = 20;
         const newAmplitudes = new Array(barsCount).fill(2);
-        const vocalBins = 40; 
-        const binsPerBar = vocalBins / barsCount;
         for (let i = 0; i < barsCount; i++) {
           let sum = 0;
-          const startBin = Math.floor(i * binsPerBar);
-          const endBin = Math.floor((i + 1) * binsPerBar);
-          let count = 0;
-          for (let j = startBin; j < endBin; j++) {
-            sum += dataArray[j] || 0;
-            count++;
-          }
-          const avg = count > 0 ? sum / count : 0;
-          const intensity = Math.pow(avg / 255, 1.2);
-          newAmplitudes[i] = Math.max(3, intensity * 28);
+          const startBin = Math.floor(i * (40 / barsCount));
+          const endBin = Math.floor((i + 1) * (40 / barsCount));
+          for (let j = startBin; j < endBin; j++) sum += dataArray[j] || 0;
+          const avg = sum / (endBin - startBin || 1);
+          newAmplitudes[i] = Math.max(3, (avg / 255) * 28);
         }
         setAmplitudes(newAmplitudes);
         animationFrameRef.current = requestAnimationFrame(update);
@@ -185,6 +168,13 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
     }
   };
 
+  const audioSources = [
+    { id: AudioSource.MIC, label: 'Microphone', icon: '🎤' },
+    { id: AudioSource.INTERNAL, label: 'System Audio', icon: '💻' },
+    { id: AudioSource.SHARE, label: 'Tab Audio', icon: '🌐' },
+    { id: AudioSource.BOTH, label: 'Mixed Audio', icon: '🎚️' },
+  ];
+
   return (
     <>
       <div 
@@ -195,61 +185,97 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
       >
         <div className="relative flex items-center h-[52px]">
           {isStreaming ? (
-            <div className="flex bg-red-600/90 rounded-full items-center overflow-hidden w-[280px] h-full shadow-[0_20px_50px_rgba(220,38,38,0.3)] border border-white/10 backdrop-blur-xl transition-all duration-300">
+            <div className="flex bg-lime-500/90 rounded-full items-center overflow-hidden w-[280px] h-full shadow-[0_20px_50px_rgba(132,204,22,0.3)] border border-white/20 backdrop-blur-xl transition-all duration-300">
               <button
                 onClick={onStop}
-                className="px-6 h-full text-white font-black transition-all flex items-center justify-center space-x-2 cursor-pointer drag-handle active:scale-95 group"
+                className="px-6 h-full text-black font-black transition-all flex items-center justify-center space-x-2 cursor-pointer active:scale-95 group"
               >
                 <div className="relative flex items-center justify-center">
-                  <span className="w-2.5 h-2.5 bg-white rounded-sm group-hover:scale-110 transition-transform" />
-                  <span className="absolute w-2.5 h-2.5 bg-white rounded-sm animate-ping opacity-40" />
+                  <span className="w-2.5 h-2.5 bg-black rounded-sm group-hover:scale-110 transition-transform" />
+                  <span className="absolute w-2.5 h-2.5 bg-black rounded-sm animate-ping opacity-40" />
                 </div>
-                <span className="text-[13px] uppercase tracking-tighter">Stop</span>
+                <span className="text-[12px] uppercase tracking-tighter">Stop</span>
               </button>
-              <div className="flex-1 flex items-center justify-center space-x-[2px] pr-5 h-full opacity-90">
+              <div className="flex-1 flex items-center justify-center space-x-[2px] pr-5 h-full opacity-90 drag-handle cursor-move">
                 {amplitudes.map((h, i) => (
-                  <div key={i} className="w-[2px] bg-white rounded-full transition-all duration-75 ease-out" style={{ height: `${h}px`, opacity: 0.4 + (h / 28) * 0.6 }} />
+                  <div key={i} className="w-[2px] bg-black rounded-full transition-all duration-75 ease-out" style={{ height: `${h}px`, opacity: 0.4 + (h / 28) * 0.6 }} />
                 ))}
               </div>
             </div>
           ) : (
-            <div className="flex h-full w-[310px] shadow-2xl rounded-full overflow-visible border border-white/10 bg-zinc-900/60 backdrop-blur-2xl">
+            <div className="flex h-full shadow-2xl rounded-full overflow-visible border border-white/10 bg-zinc-900/80 backdrop-blur-3xl group/btn">
+              {/* Main "Speak Now" Button */}
               <button
                 disabled={isLoading}
-                onClick={() => onStart(audioSource, false)}
-                className={`flex-1 px-4 ${isLoading ? 'bg-zinc-700/50' : 'bg-lime-500 hover:bg-lime-400'} text-black font-black rounded-l-full transition-all flex items-center justify-center space-x-1.5 cursor-move drag-handle active:scale-[0.98] group`}
+                onClick={() => onStart(audioSource, translationEnabled)}
+                className={`flex items-center px-6 h-full ${isLoading ? 'bg-zinc-700/50' : 'bg-lime-500 hover:bg-lime-400'} text-black font-black rounded-l-full transition-all active:scale-[0.98] group drag-handle cursor-move`}
               >
                 {isLoading ? (
-                  <div className="animate-spin h-3.5 w-3.5 border-2 border-black border-t-transparent rounded-full" />
+                  <div className="animate-spin h-4 w-4 border-2 border-black border-t-transparent rounded-full mr-2" />
                 ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 shrink-0 group-hover:scale-110 transition-transform" viewBox="0 0 20 20" fill="currentColor">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
                   </svg>
                 )}
-                <span className="text-[11px] uppercase tracking-tighter truncate">Speak</span>
+                <span className="text-[12px] uppercase tracking-tight">Speak Now</span>
               </button>
 
+              {/* Arrow Down Dropdown Trigger */}
               <button
-                disabled={isLoading}
-                onClick={() => onStart(audioSource, true)}
-                className={`flex-1 px-4 ${isLoading ? 'bg-zinc-700/50' : 'bg-cyan-500 hover:bg-cyan-400'} text-black font-black border-l border-white/20 transition-all flex items-center justify-center space-x-1.5 cursor-move drag-handle active:scale-[0.98] group`}
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="w-[44px] h-full bg-lime-500/90 hover:bg-lime-400 text-black border-l border-black/10 transition-all flex items-center justify-center active:scale-95"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 shrink-0 group-hover:scale-110 transition-transform" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
+                <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 transition-transform duration-300 ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
                 </svg>
-                <span className="text-[11px] uppercase tracking-tighter truncate">Listen</span>
               </button>
 
+              {/* Settings Trigger */}
               <button
-                disabled={isLoading}
-                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className={`w-[56px] h-full ${isLoading ? 'bg-zinc-800/50' : 'bg-zinc-800/80 hover:bg-zinc-700'} text-white rounded-r-full border-l border-white/10 transition-all flex items-center justify-center active:scale-95 group`}
+                onClick={() => setIsSidebarOpen(true)}
+                className="w-[52px] h-full bg-zinc-800/80 hover:bg-zinc-700 text-white rounded-r-full border-l border-white/10 transition-all flex items-center justify-center active:scale-95"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transition-transform duration-500 ${isSidebarOpen ? 'rotate-90' : 'group-hover:rotate-45'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
               </button>
+
+              {/* Source Selection Dropdown */}
+              {isDropdownOpen && (
+                <div 
+                  ref={dropdownRef}
+                  className="absolute bottom-full mb-3 left-0 w-56 bg-zinc-900/95 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-2xl p-2 animate-in slide-in-from-bottom-2 duration-200"
+                >
+                  <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-zinc-500 font-black border-b border-white/5 mb-1">Select Source</div>
+                  {audioSources.map(src => (
+                    <button
+                      key={src.id}
+                      onClick={() => {
+                        setAudioSource(src.id);
+                        setIsDropdownOpen(false);
+                      }}
+                      className={`w-full flex items-center px-4 py-3 rounded-xl text-[12px] font-bold transition-all ${audioSource === src.id ? 'bg-lime-500/10 text-lime-400' : 'text-zinc-400 hover:bg-white/5 hover:text-white'}`}
+                    >
+                      <span className="mr-3 text-base">{src.icon}</span>
+                      {src.label}
+                      {audioSource === src.id && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-lime-500" />}
+                    </button>
+                  ))}
+                  <div className="mt-2 pt-2 border-t border-white/5">
+                    <button
+                      onClick={() => setTranslationEnabled(!translationEnabled)}
+                      className={`w-full flex items-center px-4 py-3 rounded-xl text-[12px] font-bold transition-all ${translationEnabled ? 'text-cyan-400' : 'text-zinc-400'}`}
+                    >
+                      <span className="mr-3 text-base">🌐</span>
+                      Translation Mode
+                      <div className={`ml-auto w-8 h-4 rounded-full transition-all relative ${translationEnabled ? 'bg-cyan-500' : 'bg-zinc-700'}`}>
+                        <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${translationEnabled ? 'left-4.5' : 'left-0.5'}`} />
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -257,20 +283,17 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
 
       {isSidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black/20 z-[90] backdrop-blur-sm animate-in fade-in duration-300"
+          className="fixed inset-0 bg-black/40 z-[90] backdrop-blur-sm animate-in fade-in duration-300"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
 
-      <div className={`fixed top-0 right-0 h-full w-80 bg-zinc-950/95 border-l border-white/10 shadow-[-20px_0_60px_rgba(0,0,0,0.8)] backdrop-blur-3xl z-[100] transform transition-transform duration-500 ease-out p-8 overflow-y-auto ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div className={`fixed top-0 right-0 h-full w-80 bg-zinc-950/98 border-l border-white/10 shadow-[-20px_0_60px_rgba(0,0,0,0.8)] backdrop-blur-3xl z-[100] transform transition-transform duration-500 ease-out p-8 overflow-y-auto scrollbar-hide ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="flex items-center justify-between mb-8">
           <h3 className="text-[11px] uppercase tracking-[0.2em] font-black text-lime-500 flex items-center">
-            <span className="w-1.5 h-1.5 rounded-full bg-lime-500 mr-2" /> Configuration
+            <span className="w-1.5 h-1.5 rounded-full bg-lime-500 mr-2" /> Settings
           </h3>
-          <button 
-            onClick={() => setIsSidebarOpen(false)}
-            className="p-2 text-zinc-500 hover:text-white transition-colors"
-          >
+          <button onClick={() => setIsSidebarOpen(false)} className="p-2 text-zinc-500 hover:text-white transition-colors">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -279,29 +302,29 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
 
         <div className="space-y-8">
           <section>
-            <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black mb-3 block">Audio Input Source</label>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { id: AudioSource.MIC, label: 'Microphone', icon: '🎤' },
-                { id: AudioSource.INTERNAL, label: 'System Audio', icon: '💻' },
-                { id: AudioSource.SHARE, label: 'Tab Audio', icon: '🌐' },
-                { id: AudioSource.BOTH, label: 'Mixed Audio', icon: '🎚️' },
-              ].map(src => (
-                <button
-                  key={src.id}
-                  onClick={() => setAudioSource(src.id)}
-                  className={`flex flex-col items-center justify-center p-3 rounded-xl text-[10px] font-bold border transition-all gap-1 ${audioSource === src.id ? 'bg-lime-500/10 border-lime-500 text-lime-500 shadow-lg shadow-lime-500/10' : 'bg-white/5 border-white/5 text-zinc-400 hover:bg-white/10 hover:border-white/10'}`}
-                >
-                  <span className="text-base">{src.icon}</span>
-                  {src.label}
-                </button>
-              ))}
+            <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black mb-4 block">Translation Target</label>
+            <div className="relative">
+              <select 
+                value={targetLanguage}
+                onChange={(e) => setTargetLanguage(e.target.value)}
+                className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-[12px] font-bold text-zinc-300 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all appearance-none cursor-pointer"
+              >
+                {LANGUAGES.map(lang => <option key={lang} value={lang}>{lang}</option>)}
+              </select>
             </div>
           </section>
 
-          <section className="pt-6 border-t border-white/5">
-            <div className="flex items-center justify-between mb-3">
-              <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black">Show Overlay</label>
+          <section>
+            <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black mb-4 block">Live Monitoring</label>
+            <div className="w-full h-40 bg-black/40 border border-white/10 rounded-xl p-4 text-[10px] font-mono overflow-y-auto leading-relaxed text-lime-400/80 scrollbar-hide mb-4">
+              {cumulativeSource}
+              {liveTurnText && <span className="text-white brightness-125 animate-pulse ml-1 inline">{liveTurnText}</span>}
+              {!cumulativeSource && !liveTurnText && <span className="text-zinc-700 italic">Listening for audio...</span>}
+              <div ref={liveBoxEndRef} />
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-widest text-zinc-400 font-bold">Show Overlay</span>
               <button 
                 onClick={() => setShowTranscription(!showTranscription)}
                 className={`w-10 h-5 rounded-full transition-all relative ${showTranscription ? 'bg-lime-500' : 'bg-zinc-700'}`}
@@ -311,107 +334,29 @@ const SpeakNowButton: React.FC<SpeakNowButtonProps> = ({
             </div>
           </section>
 
-          <section className="pt-6 border-t border-white/5 space-y-4">
-            <h4 className="text-[10px] uppercase tracking-widest text-zinc-500 font-black flex items-center">
-              <span className="w-1 h-1 rounded-full bg-cyan-500 mr-2" /> Translation Engine
-            </h4>
-            
+          <section className="space-y-4">
+            <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black block">Webhooks</label>
             <div>
-              <label className="text-[9px] text-zinc-500 mb-1.5 font-bold uppercase tracking-tight block">Target Dialect / Language</label>
-              <div className="relative">
-                <select 
-                  value={targetLanguage}
-                  onChange={(e) => setTargetLanguage(e.target.value)}
-                  className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-[12px] font-bold text-zinc-300 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all appearance-none cursor-pointer"
-                >
-                  {LANGUAGES.map(lang => <option key={lang} value={lang}>{lang}</option>)}
-                </select>
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[9px] text-zinc-500 mb-1.5 font-bold uppercase tracking-tight block">Translation Receiver (Webhook)</label>
+              <span className="text-[9px] text-zinc-600 mb-1.5 font-bold uppercase block">Transcription</span>
               <input
-                type="text"
-                value={translationWebhookUrl}
-                onChange={(e) => setTranslationWebhookUrl(e.target.value)}
-                placeholder="https://api.receiver.com/translate"
-                className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-[11px] font-mono text-cyan-100 placeholder:text-zinc-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all"
+                type="text" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)}
+                placeholder="https://..."
+                className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-[11px] font-mono text-lime-100 placeholder:text-zinc-800 focus:outline-none focus:ring-2 focus:ring-lime-500/50 transition-all"
               />
             </div>
-
-            <div className="space-y-4">
-              <div className="flex flex-col">
-                <label className="text-[9px] text-zinc-500 mb-1.5 font-bold uppercase tracking-tight block">Full Session Transcript (Live)</label>
-                <div className="w-full h-32 bg-lime-950/20 border border-lime-500/10 rounded-xl p-3 text-[10px] font-mono overflow-y-auto leading-relaxed backdrop-blur-sm text-lime-400/70 scrollbar-hide">
-                  {cumulativeSource}
-                  {liveTurnText && (
-                    <span className="text-white brightness-125 animate-pulse ml-1 inline">{liveTurnText}</span>
-                  )}
-                  {!cumulativeSource && !liveTurnText && (
-                    <span className="text-zinc-700 italic">No audio detected yet...</span>
-                  )}
-                  <div ref={liveBoxEndRef} />
-                </div>
-              </div>
-
-              <div className="flex flex-col">
-                <label className="text-[9px] text-zinc-500 mb-1.5 font-bold uppercase tracking-tight block">Audit Log (History)</label>
-                <div className="w-full h-56 bg-black/60 border border-white/10 rounded-xl p-3 text-[10px] font-mono overflow-y-auto leading-relaxed backdrop-blur-sm scrollbar-hide space-y-4">
-                  {segments.length === 0 ? (
-                    <div className="text-zinc-600 italic">Waiting for active turn...</div>
-                  ) : (
-                    segments.map((seg) => (
-                      <div key={seg.id} className={`bg-zinc-900/40 p-2.5 rounded-lg border transition-colors ${seg.isFinal ? 'border-white/5 shadow-sm' : 'border-lime-500/30 shadow-[0_0_10px_rgba(101,163,13,0.1)]'}`}>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[8px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">{seg.speaker}</span>
-                          <span className={`text-[8px] font-bold uppercase tracking-widest ${seg.isFinal ? 'text-zinc-600' : 'text-lime-500 animate-pulse'}`}>{seg.isFinal ? seg.emotion : 'Listening...'}</span>
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex flex-col">
-                            <span className="text-[7px] text-lime-500/40 font-black uppercase mb-0.5">Source Audio</span>
-                            <span className={`leading-snug ${seg.isFinal ? 'text-zinc-400 italic' : 'text-white'}`}>{seg.text}</span>
-                          </div>
-                          {seg.translation && (
-                            <div className="flex flex-col pt-1.5 border-t border-white/5">
-                              <span className="text-[7px] text-cyan-400 font-black uppercase mb-0.5">Translated ({targetLanguage})</span>
-                              <span className="text-white font-bold leading-snug">{seg.translation}</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                  <div ref={liveBoxEndRef} />
-                </div>
-              </div>
+            <div>
+              <span className="text-[9px] text-zinc-600 mb-1.5 font-bold uppercase block">Translation</span>
+              <input
+                type="text" value={translationWebhookUrl} onChange={(e) => setTranslationWebhookUrl(e.target.value)}
+                placeholder="https://..."
+                className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-[11px] font-mono text-cyan-100 placeholder:text-zinc-800 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all"
+              />
             </div>
           </section>
 
-          <section className="pt-6 border-t border-white/5">
-            <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-black mb-3 block">Transcription Webhook</label>
-            <input
-              type="text"
-              value={webhookUrl}
-              onChange={(e) => setWebhookUrl(e.target.value)}
-              placeholder="https://api.receiver.com/transcribe"
-              className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-[11px] font-mono text-lime-100 placeholder:text-zinc-700 focus:outline-none focus:ring-2 focus:ring-lime-500/50 transition-all"
-            />
-          </section>
-          
-          <div className="pt-6">
-            <button 
-              onClick={() => setIsSidebarOpen(false)}
-              className="w-full py-4 bg-zinc-800 hover:bg-zinc-700 text-white text-[11px] uppercase tracking-[0.2em] font-black rounded-2xl transition-all border border-white/5"
-            >
-              Close Settings
-            </button>
-          </div>
+          <button onClick={() => setIsSidebarOpen(false)} className="w-full py-4 bg-zinc-800 hover:bg-zinc-700 text-white text-[11px] uppercase tracking-[0.2em] font-black rounded-2xl transition-all border border-white/5">
+            Close Panel
+          </button>
         </div>
       </div>
     </>
