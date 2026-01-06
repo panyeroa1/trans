@@ -4,33 +4,30 @@
 
 ---
 
-## Session ID: 20250326-020000
-**Start Time**: 2025-03-26 02:00:00
+## Session ID: 20250326-033000
+**Start Time**: 2025-03-26 03:30:00
 
 ### Objective(s)
-1. Fix "white screen" issue by adding entry point script to `index.html`.
-2. Ensure correct deployment configuration for Vercel.
-3. Fix click-blocking issues in iframe scenarios.
+1. Increase transcription overlay width to at least 50% of the screen.
+2. Prevent "word-by-word" box growth by fixing a larger minimum width.
 
 ### Repo Scan
-- `index.html`: Found missing script tag for `index.tsx`.
-- `App.tsx`: Refined `Draggable` component to ensure `pointer-events-auto` is set on containers.
+- `App.tsx`: Subtitle overlay `min-w` style identified.
 
-### Technical Detail: Vercel & Iframe Support
-- Added `vercel.json` with SPA rewrite rules to prevent 404s on refresh.
-- Explicitly added `pointer-events-auto` to the `Draggable` wrapper. Since the root `#root` has `pointer-events: none`, we must ensure every rendered component specifically re-enables them to be interactable inside the parent iframe.
+### Technical Detail: Width Expansion
+- Updated transcription container to `min-w-[50vw]`.
+- Increased horizontal padding from `px-8` to `px-12` to handle longer phrases better.
+- Set `max-w-[90vw]` to ensure it doesn't clip off the screen on very long turns.
+- Applied the same `min-w-[50vw]` to the "Listening..." placeholder for visual consistency.
 
 ---
-**End Time**: 2025-03-26 02:05:00
+**End Time**: 2025-03-26 03:35:00
 **Summary of Changes**:
-- **Fix**: App now boots correctly due to `index.tsx` inclusion in HTML.
-- **Config**: Added `vercel.json`.
-- **UX**: Button is now reliably clickable in all iframe/overlay contexts.
+- **UI**: Transcription overlay is now a wide bar (50vw minimum).
+- **Layout**: Box remains stable even for short phrases.
 
 **Files Changed**:
-- `index.html`
 - `App.tsx`
-- `vercel.json`
 - `DEV_SESSION_LOG.md`
 
-**Results**: PASS. App renders and is interactable.
+**Results**: PASS. Subtitles are now significantly more prominent and context-rich.

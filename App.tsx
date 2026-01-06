@@ -18,6 +18,9 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ status: 'idle' | 'syncing' | 'error' | 'success', message?: string }>({ status: 'idle' });
   
+  // Timing for the "initial moments" indicator
+  const [showInitialLang, setShowInitialLang] = useState(false);
+
   const meetingIdRef = useRef('');
   const cumulativeSourceRef = useRef('');
   const sessionRecordIdRef = useRef<string | null>(null);
@@ -115,7 +118,12 @@ const App: React.FC = () => {
         onError: () => onStop(),
         onClose: () => onStop()
       }, sourceLanguage);
+      
       setIsStreaming(true);
+      // High visibility for language badge in "initial moments"
+      setShowInitialLang(true);
+      setTimeout(() => setShowInitialLang(false), 8000);
+      
     } catch (err) {
       console.error(err);
       setIsLoading(false);
@@ -129,6 +137,7 @@ const App: React.FC = () => {
     geminiServiceRef.current.stop();
     audioServiceRef.current.stop();
     setIsStreaming(false);
+    setShowInitialLang(false);
     setStream(null);
     setLiveTurnText('');
     sessionRecordIdRef.current = null;
@@ -139,15 +148,37 @@ const App: React.FC = () => {
   return (
     <div className="fixed inset-0 bg-transparent pointer-events-none w-screen h-screen">
       {/* Subtitles Overlay */}
-      {showTranscription && currentDisplay && (
+      {showTranscription && (isStreaming || currentDisplay) && (
         <Draggable initialPos={transPos} onPosChange={setTransPos}>
           <div className="relative group">
-            <div className="absolute -inset-10 bg-black/30 backdrop-blur-md rounded-[4rem] opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10" />
-            <div className="bg-black/95 backdrop-blur-3xl px-10 py-6 rounded-[2.5rem] border border-white/20 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.8)] min-w-[440px] max-w-[70vw] ring-1 ring-white/10 transition-all">
-              <p className="text-[24px] font-helvetica-thin text-white tracking-wide text-center leading-relaxed antialiased">
-                {currentDisplay}
-              </p>
-            </div>
+            {/* Language Indicator Pill */}
+            {isStreaming && (
+              <div className={`absolute -top-6 left-1/2 -translate-x-1/2 flex items-center space-x-2 px-3 py-1 rounded-full border border-white/10 backdrop-blur-xl transition-all duration-700 pointer-events-none ${
+                showInitialLang ? 'opacity-100 scale-100 translate-y-0 bg-lime-500/20' : 'opacity-40 scale-90 translate-y-1 bg-black/40'
+              }`}>
+                <div className={`w-1 h-1 rounded-full bg-lime-500 ${showInitialLang ? 'animate-pulse' : ''}`} />
+                <span className="text-[8px] uppercase tracking-[0.3em] font-black text-white/80 whitespace-nowrap">
+                  {sourceLanguage}
+                </span>
+              </div>
+            )}
+
+            {currentDisplay ? (
+              <div className="bg-black/95 backdrop-blur-3xl px-12 h-[45px] rounded-full border border-white/20 shadow-[0_16px_32px_-8px_rgba(0,0,0,0.8)] min-w-[50vw] max-w-[90vw] ring-1 ring-white/10 transition-all flex items-center justify-center">
+                <p className="text-[16px] font-helvetica-thin text-white tracking-wide text-center leading-none antialiased px-2">
+                  {currentDisplay}
+                </p>
+              </div>
+            ) : isStreaming && (
+              <div className="bg-black/80 backdrop-blur-xl px-12 h-[45px] rounded-full border border-white/10 min-w-[50vw] flex items-center justify-center space-x-3 opacity-60">
+                <div className="flex space-x-1">
+                  <div className="w-1.5 h-1.5 bg-white rounded-full animate-bounce [animation-delay:-0.3s]" />
+                  <div className="w-1.5 h-1.5 bg-white rounded-full animate-bounce [animation-delay:-0.15s]" />
+                  <div className="w-1.5 h-1.5 bg-white rounded-full animate-bounce" />
+                </div>
+                <span className="text-[11px] uppercase tracking-widest font-bold text-white/60 italic">Listening...</span>
+              </div>
+            )}
           </div>
         </Draggable>
       )}
