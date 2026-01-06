@@ -16,7 +16,6 @@ const App: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isTranslatorActive, setIsTranslatorActive] = useState(false);
   
-  // Collaborative State
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
   const [participants, setParticipants] = useState<string[]>([]);
   const lastSpeakerUpdateRef = useRef<number>(0);
@@ -54,11 +53,11 @@ const App: React.FC = () => {
 
   const [transPos, setTransPos] = useState(() => {
     const saved = localStorage.getItem('cs_trans_pos_v2');
-    return saved ? JSON.parse(saved) : { x: 0, y: window.innerHeight - 180 };
+    return saved ? JSON.parse(saved) : { x: 0, y: window.innerHeight - 150 };
   });
   const [settingsPos, setSettingsPos] = useState(() => {
     const saved = localStorage.getItem('cs_settings_pos_v2');
-    return saved ? JSON.parse(saved) : { x: window.innerWidth - 380, y: 50 };
+    return saved ? JSON.parse(saved) : { x: window.innerWidth - 420, y: 50 };
   });
   const [controlPos, setControlPos] = useState(() => {
     const saved = localStorage.getItem('cs_control_pos_v2');
@@ -76,7 +75,6 @@ const App: React.FC = () => {
     sessionStorage.setItem('eburon_session_v3', meetingId);
   }, [transPos, settingsPos, controlPos, learningContext, meetingId]);
 
-  // Supabase Real-time Listener
   useEffect(() => {
     const channel = supabase
       .channel(`room:${meetingId}`)
@@ -87,25 +85,18 @@ const App: React.FC = () => {
         filter: `meeting_id=eq.${meetingId}` 
       }, (payload) => {
         const data = payload.new as any;
-        
-        // 1. Update Speaker State (to disable local mic if someone else is talking)
         if (data.speaker_id !== userId) {
           setActiveSpeakerId(data.speaker_id);
           lastSpeakerUpdateRef.current = Date.now();
         }
-
-        // 2. Feed Translator if active
         if (isTranslatorActive && data.speaker_id !== userId) {
           geminiServiceRef.current.sendTranslationText(data.transcribe_text_segment);
         }
-
-        // 3. Update global participants list from payload
         if (data.users_all) setParticipants(data.users_all);
       })
       .subscribe();
 
     const interval = setInterval(() => {
-      // Release speaker lock if no updates for 6 seconds
       if (Date.now() - lastSpeakerUpdateRef.current > 6000) {
         setActiveSpeakerId(null);
       }
@@ -149,7 +140,7 @@ const App: React.FC = () => {
       const trimmed = text.trim();
       segmentBufferRef.current = (segmentBufferRef.current + " " + trimmed).trim();
       let newDisplay = (displayBufferRef.current + (displayBufferRef.current ? " " : "") + trimmed).trim();
-      if (newDisplay.length > 500) newDisplay = trimmed;
+      if (newDisplay.length > 300) newDisplay = trimmed;
       displayBufferRef.current = newDisplay;
       setSegments(newDisplay);
       setLiveTurnText('');
@@ -234,8 +225,9 @@ const App: React.FC = () => {
   };
 
   const subtitleStyle: React.CSSProperties = {
-    textShadow: '0 2px 8px rgba(0,0,0,0.9), 0 0 1px rgba(0,0,0,1)',
-    WebkitFontSmoothing: 'antialiased'
+    WebkitFontSmoothing: 'antialiased',
+    lineHeight: '1.4',
+    textShadow: '0 2px 4px rgba(0,0,0,0.8), 0 4px 12px rgba(0,0,0,0.6), 0 0 1px rgba(0,0,0,1)',
   };
 
   return (
@@ -249,15 +241,22 @@ const App: React.FC = () => {
 
       {showTranscription && (
         <Draggable initialPos={transPos} onPosChange={setTransPos}>
-          <div className="relative group w-screen flex flex-col items-center px-16">
-            <div className={`relative w-full flex items-end justify-center min-h-[120px] transition-all duration-500 ${!segments && !liveTurnText && !isStreaming ? 'opacity-0' : 'opacity-100'}`}>
-              <div className="w-full text-center">
-                <p style={subtitleStyle} className="text-[22px] font-helvetica-thin tracking-widest leading-[1.7] antialiased text-white break-words">
-                  {segments}
-                  {liveTurnText && <span className="ml-2 text-lime-400/90 italic">{liveTurnText}</span>}
-                  {isStreaming && !segments && !liveTurnText && <span className="text-zinc-500 opacity-40 text-[14px] uppercase tracking-[0.3em]">Syncing Room...</span>}
-                </p>
-              </div>
+          <div className="relative group w-screen flex flex-col items-center px-24">
+            <div className={`relative w-full text-center transition-all duration-700 ${!segments && !liveTurnText && !isStreaming ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'}`}>
+              <p 
+                style={subtitleStyle} 
+                className="text-[28px] font-helvetica-thin tracking-tight text-white break-words"
+              >
+                {segments}
+                {liveTurnText && (
+                  <span className="text-lime-400 font-normal italic">
+                    {segments ? ' ' : ''}{liveTurnText}
+                  </span>
+                )}
+                {isStreaming && !segments && !liveTurnText && (
+                  <span className="text-white/30 text-[16px] uppercase tracking-[0.4em] font-black animate-pulse">Capturing Audio...</span>
+                )}
+              </p>
             </div>
           </div>
         </Draggable>
@@ -313,7 +312,7 @@ const Draggable: React.FC<{ children: React.ReactNode; initialPos: { x: number, 
     const onMouseMove = (e: MouseEvent) => {
       if (!isDragging) return;
       const newPos = { 
-        x: Math.max(0, Math.min(window.innerWidth - 100, e.clientX - offset.current.x)),
+        x: Math.max(-500, Math.min(window.innerWidth + 500, e.clientX - offset.current.x)),
         y: Math.max(0, Math.min(window.innerHeight - 40, e.clientY - offset.current.y))
       };
       setPos(newPos);
@@ -331,7 +330,7 @@ const Draggable: React.FC<{ children: React.ReactNode; initialPos: { x: number, 
   }, [isDragging]);
 
   return (
-    <div className={`fixed cursor-grab active:cursor-grabbing z-[999] pointer-events-auto ${isDragging ? 'opacity-70 scale-[1.02] duration-0' : 'duration-300 transition-all'}`} style={{ left: pos.x, top: pos.y }} onMouseDown={onMouseDown}>
+    <div className={`fixed cursor-grab active:cursor-grabbing z-[999] pointer-events-auto ${isDragging ? 'opacity-70 scale-[1.01] duration-0' : 'duration-500 transition-all'}`} style={{ left: pos.x, top: pos.y }} onMouseDown={onMouseDown}>
       {children}
     </div>
   );
