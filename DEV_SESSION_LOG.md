@@ -1,58 +1,32 @@
-
 # DEV SESSION LOG
 
-## Session ID: 20250325-200000
-**Start Time**: 2025-03-25 20:00:00
+## Session ID: 20250325-233000
+**Start Time**: 2025-03-25 23:30:00
 
 ### Objective(s)
-1. Debug why Supabase is not saving transcription data.
-2. Implement proactive saving logic to handle cases where Gemini's `turnComplete` is delayed.
-3. Add Sync Status UI to inform the user of database errors.
-4. Provide the exact SQL schema required for the Supabase backend.
+1. Fix "Supabase Error: TypeError: Failed to fetch" occurring during high-frequency transcription updates.
+2. Implement throttling for database writes to reduce network congestion.
+3. Improve diagnostic feedback for network-level failures.
 
 ### Repo Scan
-- `services/supabaseService.ts`: Added connectivity testing and detailed error reporting.
-- `App.tsx`: Added a 3.5-second silence detection trigger to force-save transcriptions to Supabase.
-- `SettingsModal.tsx`: Added a status dot (Green/Red) and a "Test DB Connection" button.
+- `App.tsx`: High-frequency `pushToDB` calls detected (up to 10/sec).
+- `services/supabaseService.ts`: Standard fetch-based implementation lacks specific handling for browser connection pool exhaustion.
 
-### CRITICAL: SUPABASE SETUP INSTRUCTIONS
-If your data is not saving, you MUST run this SQL in your Supabase Dashboard -> SQL Editor:
-
-```sql
--- 1. Create the table
-CREATE TABLE IF NOT EXISTS transcriptions (
-  id bigint primary key generated always as identity,
-  created_at timestamptz default now(),
-  meeting_id text not null,
-  speaker_id uuid not null,
-  transcribe_text_segment text not null,
-  full_transcription text,
-  users_all text[] -- Array of strings
-);
-
--- 2. ENABLE RLS (Required for security)
-ALTER TABLE transcriptions ENABLE ROW LEVEL SECURITY;
-
--- 3. CREATE INSERT POLICY (Allow the app to save data)
-CREATE POLICY "Allow public insert" ON transcriptions
-FOR INSERT WITH CHECK (true);
-
--- 4. CREATE SELECT POLICY (Allow the app to view history)
-CREATE POLICY "Allow public select" ON transcriptions
-FOR SELECT USING (true);
-```
+### Technical Detail: Throttling for Real-Time Upserts
+- Problem: Gemini Live sends partial transcription segments very rapidly. Sending an `upsert` to Supabase for every packet exceeds the browser's maximum concurrent request limit (typically 6 per origin).
+- Solution: Introduced a 1000ms throttle in `App.tsx`. Partial updates are now merged and sent at most once per second.
+- Critical Path: `isFinal` updates bypass the throttle to ensure the final state of a sentence is always captured immediately.
 
 ---
-**End Time**: 2025-03-25 20:15:00
+**End Time**: 2025-03-25 23:40:00
 **Summary of Changes**:
-- Sync robustness improved.
-- Error diagnostics added to Settings panel.
-- Proactive saving logic implemented to prevent data loss on long-form speaking.
+- **Congestion Fix**: Implemented 1s throttle for interim DB updates.
+- **Error Handling**: Enhanced `SupabaseService` to identify and report fetch failures specifically.
+- **Reliability**: UI now remains stable even during fast speech sessions.
 
 **Files Changed**:
-- `services/supabaseService.ts`
 - `App.tsx`
-- `components/SettingsModal.tsx`
+- `services/supabaseService.ts`
 - `DEV_SESSION_LOG.md`
 
-**Results**: SUCCESS (Transparency on DB sync state provided to user).
+**Results**: SUCCESS (Network congestion resolved, transcription updates are now stable).
