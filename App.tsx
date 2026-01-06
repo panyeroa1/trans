@@ -8,6 +8,7 @@ import { SupabaseService } from './services/supabaseService';
 const App: React.FC = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isVADActive, setIsVADActive] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [audioSource, setAudioSource] = useState<AudioSource>(AudioSource.MIC);
   const [sourceLanguage, setSourceLanguage] = useState('English (US)');
@@ -19,16 +20,16 @@ const App: React.FC = () => {
   const [syncStatus, setSyncStatus] = useState<{ status: 'idle' | 'syncing' | 'error' | 'success', message?: string }>({ status: 'idle' });
   
   const meetingIdRef = useRef('');
-  const cumulativeSourceRef = useRef('');
-  const sessionRecordIdRef = useRef<string | null>(null);
+  const cumulativeSourceRef = useRef(''); 
+  const segmentBufferRef = useRef(''); 
+  const displayHistoryRef = useRef<string[]>([]); // Keeps a sliding window of recent sentences
   const silenceTimeoutRef = useRef<number | null>(null);
-  
-  const lastSaveTimeRef = useRef<number>(0);
+  const flushTimeoutRef = useRef<number | null>(null); 
 
   // Position management
   const [transPos, setTransPos] = useState(() => {
     const saved = localStorage.getItem('cs_trans_pos');
-    return saved ? JSON.parse(saved) : { x: window.innerWidth / 2 - 200, y: window.innerHeight - 150 };
+    return saved ? JSON.parse(saved) : { x: 20, y: window.innerHeight - 200 };
   });
   const [settingsPos, setSettingsPos] = useState(() => {
     const saved = localStorage.getItem('cs_settings_pos');
@@ -46,33 +47,32 @@ const App: React.FC = () => {
   const audioServiceRef = useRef(new AudioService());
   const geminiServiceRef = useRef(new GeminiLiveService());
 
-  const pushToDB = async (currentSegment: string, isFinal: boolean) => {
-    if (!currentSegment.trim() && !isFinal) return;
-    const now = Date.now();
-    if (!isFinal && (now - lastSaveTimeRef.current < 800)) return;
+  const countSentences = (text: string): number => {
+    const sentences = text.match(/([.!?\u2026])(\s+|$)/g);
+    return sentences ? sentences.length : 0;
+  };
 
-    if (!sessionRecordIdRef.current) sessionRecordIdRef.current = crypto.randomUUID();
-
+  const shipSegment = async (text: string) => {
+    if (!text.trim()) return;
+    const cleanText = text.trim();
+    const segmentId = crypto.randomUUID();
+    
+    const previousHistory = cumulativeSourceRef.current;
+    const newHistory = (previousHistory + (previousHistory ? " " : "") + cleanText).trim();
+    cumulativeSourceRef.current = newHistory;
+    
     setSyncStatus({ status: 'syncing' });
-    lastSaveTimeRef.current = now;
-
-    const fullContent = (cumulativeSourceRef.current + (cumulativeSourceRef.current ? " " : "") + currentSegment.trim()).trim();
-
     const result = await SupabaseService.upsertTranscription({
-      id: sessionRecordIdRef.current,
+      id: segmentId,
       meeting_id: meetingIdRef.current,
       speaker_id: '00000000-0000-0000-0000-000000000000',
-      transcribe_text_segment: currentSegment.trim(),
-      full_transcription: fullContent,
+      transcribe_text_segment: cleanText,
+      full_transcription: newHistory,
       users_all: ['System']
     });
 
     if (result.success) {
       setSyncStatus({ status: 'success' });
-      if (isFinal) {
-        cumulativeSourceRef.current = fullContent;
-        lastSaveTimeRef.current = 0;
-      }
     } else {
       setSyncStatus({ status: 'error', message: result.error });
     }
@@ -80,17 +80,49 @@ const App: React.FC = () => {
 
   const handleTranscription = useCallback((text: string, isFinal: boolean) => {
     if (!text.trim()) return;
+
     if (silenceTimeoutRef.current) window.clearTimeout(silenceTimeoutRef.current);
+    if (flushTimeoutRef.current) window.clearTimeout(flushTimeoutRef.current);
     
     if (isFinal) {
-      setSegments(prev => [{ id: Date.now(), text: text.trim() }, ...prev].slice(0, 10));
+      // Add to logic buffer for shipping
+      segmentBufferRef.current = (segmentBufferRef.current + " " + text.trim()).trim();
+      
+      // Update sliding window for display
+      displayHistoryRef.current.push(text.trim());
+      if (displayHistoryRef.current.length > 8) { // Keep last 8 finalized sentences/phrases
+        displayHistoryRef.current.shift();
+      }
+      
+      setSegments([{ id: Date.now(), text: displayHistoryRef.current.join(" ") }]);
       setLiveTurnText('');
-      pushToDB(text, true);
+
+      // Threshold for translation context: 4 sentences or 300 characters
+      const sentenceCount = countSentences(segmentBufferRef.current);
+      const charCount = segmentBufferRef.current.length;
+
+      if (sentenceCount >= 4 || charCount > 350) {
+        shipSegment(segmentBufferRef.current);
+        segmentBufferRef.current = '';
+        // Note: We do NOT clear displayHistoryRef here so the UI stays full
+      } else {
+        flushTimeoutRef.current = window.setTimeout(() => {
+          if (segmentBufferRef.current.trim()) {
+            shipSegment(segmentBufferRef.current);
+            segmentBufferRef.current = '';
+          }
+        }, 8000);
+      }
     } else {
-      setLiveTurnText(text);
-      pushToDB(text, false);
-      silenceTimeoutRef.current = window.setTimeout(() => handleTranscription(text, true), 2500);
+      // Interim text: append to the finalized history for seamless reading
+      const currentStable = displayHistoryRef.current.join(" ");
+      setLiveTurnText((currentStable + (currentStable ? " " : "") + text).trim());
+      silenceTimeoutRef.current = window.setTimeout(() => handleTranscription(text, true), 3000);
     }
+  }, []);
+
+  const handleVADChange = useCallback((isActive: boolean) => {
+    setIsVADActive(isActive);
   }, []);
 
   const onStart = async (source: AudioSource) => {
@@ -104,20 +136,20 @@ const App: React.FC = () => {
 
     meetingIdRef.current = `ORBIT-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     cumulativeSourceRef.current = '';
-    sessionRecordIdRef.current = crypto.randomUUID();
-    lastSaveTimeRef.current = 0;
+    segmentBufferRef.current = '';
+    displayHistoryRef.current = [];
+    setSegments([]);
     
     try {
       const mediaStream = await audioServiceRef.current.getStream(source);
       setStream(mediaStream);
       await geminiServiceRef.current.startStreaming(mediaStream, {
         onTranscription: handleTranscription,
+        onVADChange: handleVADChange,
         onError: () => onStop(),
         onClose: () => onStop()
       }, sourceLanguage);
-      
       setIsStreaming(true);
-      
     } catch (err) {
       console.error(err);
       setIsLoading(false);
@@ -128,48 +160,56 @@ const App: React.FC = () => {
 
   const onStop = () => {
     if (silenceTimeoutRef.current) window.clearTimeout(silenceTimeoutRef.current);
+    if (flushTimeoutRef.current) window.clearTimeout(flushTimeoutRef.current);
+    
+    if (segmentBufferRef.current.trim()) {
+      shipSegment(segmentBufferRef.current);
+    }
+    
     geminiServiceRef.current.stop();
     audioServiceRef.current.stop();
     setIsStreaming(false);
+    setIsVADActive(false);
     setStream(null);
     setLiveTurnText('');
-    sessionRecordIdRef.current = null;
+    segmentBufferRef.current = '';
   };
 
   const currentDisplay = liveTurnText || (segments.length > 0 ? segments[0].text : "");
 
   return (
     <div className="fixed inset-0 bg-transparent pointer-events-none w-screen h-screen">
-      {/* Subtitles Overlay */}
       {showTranscription && (isStreaming || currentDisplay) && (
         <Draggable initialPos={transPos} onPosChange={setTransPos}>
-          <div className="relative group">
+          <div className="relative group w-[95vw]">
             {currentDisplay ? (
-              <div className="bg-black/95 backdrop-blur-3xl px-12 h-[45px] rounded-full border border-white/20 shadow-[0_16px_32px_-8px_rgba(0,0,0,0.8)] min-w-[50vw] max-w-[90vw] ring-1 ring-white/10 transition-all flex items-center justify-center">
-                <p className="text-[16px] font-helvetica-thin text-white tracking-wide text-center leading-none antialiased px-2">
+              <div className="bg-black/90 backdrop-blur-3xl px-10 py-5 rounded-[2.5rem] border border-white/20 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.9)] w-full ring-1 ring-white/10 transition-all flex items-center justify-center">
+                <p className="text-[22px] font-helvetica-thin text-white tracking-wide text-center leading-relaxed antialiased px-4 break-words w-full">
                   {currentDisplay}
                 </p>
               </div>
             ) : isStreaming && (
-              <div className="bg-black/80 backdrop-blur-xl px-12 h-[45px] rounded-full border border-white/10 min-w-[50vw] flex items-center justify-center space-x-3 opacity-60">
+              <div className="bg-black/80 backdrop-blur-xl px-12 h-[60px] rounded-full border border-white/10 min-w-[50vw] flex items-center justify-center space-x-3 opacity-60 shadow-xl">
                 <div className="flex space-x-1">
-                  <div className="w-1.5 h-1.5 bg-white rounded-full animate-bounce [animation-delay:-0.3s]" />
-                  <div className="w-1.5 h-1.5 bg-white rounded-full animate-bounce [animation-delay:-0.15s]" />
-                  <div className="w-1.5 h-1.5 bg-white rounded-full animate-bounce" />
+                  <div className={`w-2.5 h-2.5 rounded-full animate-bounce [animation-delay:-0.3s] ${isVADActive ? 'bg-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.9)]' : 'bg-white'}`} />
+                  <div className={`w-2.5 h-2.5 rounded-full animate-bounce [animation-delay:-0.15s] ${isVADActive ? 'bg-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.9)]' : 'bg-white'}`} />
+                  <div className={`w-2.5 h-2.5 rounded-full animate-bounce ${isVADActive ? 'bg-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.9)]' : 'bg-white'}`} />
                 </div>
-                <span className="text-[11px] uppercase tracking-widest font-bold text-white/60 italic">Listening...</span>
+                <span className={`text-[14px] uppercase tracking-[0.3em] font-black italic transition-colors ${isVADActive ? 'text-lime-400' : 'text-white/60'}`}>
+                  {isVADActive ? 'Listening...' : 'Waiting for voice...'}
+                </span>
               </div>
             )}
           </div>
         </Draggable>
       )}
 
-      {/* Main Trigger Button */}
       <Draggable initialPos={controlPos} onPosChange={setControlPos} handleClass="drag-handle">
         <div className="transition-transform hover:scale-105 active:scale-95">
           <SpeakNowButton 
             onStart={onStart} onStop={onStop}
             isStreaming={isStreaming} isLoading={isLoading}
+            isVADActive={isVADActive}
             audioSource={audioSource} setAudioSource={setAudioSource}
             openSettings={() => setIsSettingsOpen(!isSettingsOpen)}
             stream={stream}
@@ -177,7 +217,6 @@ const App: React.FC = () => {
         </div>
       </Draggable>
 
-      {/* Settings Panel */}
       {isSettingsOpen && (
         <Draggable initialPos={settingsPos} onPosChange={setSettingsPos} handleClass="settings-drag-handle">
           <SettingsModal 
@@ -207,7 +246,6 @@ const Draggable: React.FC<{ children: React.ReactNode; initialPos: { x: number, 
     if (handleClass && !(e.target as HTMLElement).closest(`.${handleClass}`)) return;
     const target = e.target as HTMLElement;
     if (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') return;
-
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     offset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     setIsDragging(true);
@@ -237,7 +275,7 @@ const Draggable: React.FC<{ children: React.ReactNode; initialPos: { x: number, 
 
   return (
     <div 
-      className={`fixed cursor-grab active:cursor-grabbing z-[999] pointer-events-auto ${isDragging ? 'opacity-80 scale-[1.02] duration-0' : 'duration-150 transition-transform'}`} 
+      className={`fixed cursor-grab active:cursor-grabbing z-[999] pointer-events-auto ${isDragging ? 'opacity-80 scale-[1.01] duration-0' : 'duration-150 transition-transform'}`} 
       style={{ left: pos.x, top: pos.y, userSelect: isDragging ? 'none' : 'auto' }} 
       onMouseDown={onMouseDown}
     >

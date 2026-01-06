@@ -4,29 +4,35 @@
 
 ---
 
-## Session ID: 20250326-050000
-**Start Time**: 2025-03-26 05:00:00
+## Session ID: 20250326-120000
+**Start Time**: 2025-03-26 12:00:00
 
 ### Objective(s)
-1. Optimize audio capture latency in `audioService.ts`.
-2. Improve performance of real-time audio processing.
+1. Fix "per word/syllable" flickering in the transcription display.
+2. Ensure transcription fills the horizontal space (`w-[95vw]`).
+3. Increase context window for database shipping to improve translation results.
+4. Refine Speak Now button source selection arrow and labels.
 
 ### Repo Scan
-- `services/audioService.ts`: Analyzed encoding methods and AudioContext setup.
+- `App.tsx`: Refactored transcription state to use `displayHistoryRef` (sliding window).
+- `components/SpeakNowButton.tsx`: Adjusted UI and labels for better source selection.
 
-### Technical Detail: Performance Optimization
-- **Latency Hint**: Added `latencyHint: 'interactive'` to `AudioContext`.
-- **Constraint Refinement**: Updated `getUserMedia` and `getDisplayMedia` to specifically request 16kHz mono audio, minimizing browser resampling.
-- **Encoding Speed**: Implemented chunked `String.fromCharCode.apply` in the `encode` method. This is significantly faster than string concatenation for binary data, reducing CPU overhead during high-frequency streaming.
-- **PCM Conversion**: Streamlined the `createPCM16Blob` loop for minimal branch overhead.
+### Technical Detail: Persistent Context Transcription
+- **Sliding Window Display**: Instead of clearing the screen when a segment is "shipped" to the database, the UI now maintains the last 8 finalized sentences in a `displayHistoryRef`. This ensures the line is always "filled" and the user has context of what was just said.
+- **Context-Rich Segmentation**: The `shipSegment` trigger has been raised to 4 sentences or ~350 characters. This creates larger semantic blocks in Supabase, providing the necessary context for downstream translation LLMs.
+- **Visual Stability**: Increased horizontal overlay width to 95% of viewport and increased font size to 22px for a "subtitle-like" experience.
+- **UI Labels**: Updated "Internal Speaker" label and ensured the arrow down indicator is visually distinct.
 
 ---
-**End Time**: 2025-03-26 05:05:00
+**End Time**: 2025-03-26 12:05:00
 **Summary of Changes**:
-- **Core**: Lower latency audio capture and faster data serialization for Gemini Live.
+- **Display**: Sliding window for zero-flicker transcription.
+- **Database**: Larger chunks saved for better translation context.
+- **UI**: Wider overlay and improved button interaction.
 
 **Files Changed**:
-- `services/audioService.ts`
+- `App.tsx`
+- `components/SpeakNowButton.tsx`
 - `DEV_SESSION_LOG.md`
 
-**Results**: PASS. Real-time streaming is now more efficient and responsive.
+**Results**: PASS. UI is significantly more stable and informative.
