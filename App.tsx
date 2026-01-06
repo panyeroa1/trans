@@ -40,7 +40,7 @@ const App: React.FC = () => {
   // Responsive position management
   const [transPos, setTransPos] = useState(() => {
     const saved = localStorage.getItem('cs_trans_pos_v2');
-    return saved ? JSON.parse(saved) : { x: window.innerWidth / 2 - 400, y: window.innerHeight - 80 };
+    return saved ? JSON.parse(saved) : { x: window.innerWidth / 2 - 400, y: window.innerHeight - 100 };
   });
   const [settingsPos, setSettingsPos] = useState(() => {
     const saved = localStorage.getItem('cs_settings_pos_v2');
@@ -92,11 +92,10 @@ const App: React.FC = () => {
       
       let newDisplay = (displayBufferRef.current + (displayBufferRef.current ? " " : "") + trimmed).trim();
       
-      // FLATTENED FLOW: Sliding window based on length to fill the 800px width
-      // Approx 100-120 chars for a single line at this font size
-      if (newDisplay.length > 220) {
-        // Find the last 140 characters and start from the next space to avoid cutting words
-        const cutoff = newDisplay.length - 140;
+      // FLATTENED FLOW: Refined sliding window for 800px width.
+      // Increased to 320 chars to ensure the strip stays full longer.
+      if (newDisplay.length > 320) {
+        const cutoff = newDisplay.length - 240;
         const nextSpace = newDisplay.indexOf(' ', cutoff);
         newDisplay = newDisplay.substring(nextSpace !== -1 ? nextSpace : cutoff).trim();
       }
@@ -115,11 +114,11 @@ const App: React.FC = () => {
             shipSegment(segmentBufferRef.current);
             segmentBufferRef.current = '';
           }
-        }, 5000);
+        }, 6000); // Wait longer for final thought
       }
     } else {
       setLiveTurnText(text.trim());
-      silenceTimeoutRef.current = window.setTimeout(() => handleTranscription(text, true), 2000);
+      silenceTimeoutRef.current = window.setTimeout(() => handleTranscription(text, true), 2200);
     }
   }, []);
 
@@ -130,6 +129,12 @@ const App: React.FC = () => {
   const onStart = async (source: AudioSource) => {
     setIsLoading(true);
     setSyncStatus({ status: 'idle' });
+    
+    // Clear display ONLY when starting a fresh session
+    setSegments('');
+    displayBufferRef.current = '';
+    segmentBufferRef.current = '';
+    
     SupabaseService.clearCache(meetingIdRef.current);
 
     try {
@@ -158,6 +163,8 @@ const App: React.FC = () => {
   const onStop = () => {
     if (silenceTimeoutRef.current) window.clearTimeout(silenceTimeoutRef.current);
     if (flushTimeoutRef.current) window.clearTimeout(flushTimeoutRef.current);
+    
+    // Final save before stopping
     if (segmentBufferRef.current.trim()) shipSegment(segmentBufferRef.current);
     
     geminiServiceRef.current.stop();
@@ -166,29 +173,43 @@ const App: React.FC = () => {
     setIsVADActive(false);
     setStream(null);
     setLiveTurnText('');
-    setSegments('');
-    displayBufferRef.current = '';
-    segmentBufferRef.current = '';
+    
+    // DO NOT clear segments here. Let them stay visible for the user to read.
+    // The next session's onStart will clear it.
   };
 
-  // Linear flow combination
   const renderText = segments ? (liveTurnText ? `${segments} ${liveTurnText}` : segments) : liveTurnText;
 
   return (
     <div className="fixed inset-0 bg-transparent pointer-events-none w-screen h-screen overflow-hidden">
-      {/* FLATTENED TRANSCRIPTION STRIP - Visible from start */}
       {showTranscription && (
         <Draggable initialPos={transPos} onPosChange={setTransPos}>
           <div className="relative group w-[800px]">
-            <div className={`bg-black/80 backdrop-blur-2xl px-6 py-2.5 rounded-full border border-white/10 shadow-[0_4px_24px_rgba(0,0,0,0.5)] flex items-center justify-center transition-all duration-700 min-h-[44px] ${!renderText && !isStreaming ? 'opacity-40 scale-95 grayscale' : 'opacity-100 scale-100'}`}>
-              <p className={`text-[14px] font-helvetica-thin tracking-wide text-center leading-none antialiased break-words w-full truncate ${renderText ? 'text-white' : 'text-zinc-500 italic'}`}>
-                {renderText || (isStreaming ? "Listening for speech..." : "Engine Standby - Speak Now to begin...")}
-                {isStreaming && !liveTurnText && <span className="ml-2 inline-block w-1 h-3 bg-lime-400 animate-pulse rounded-full align-middle" />}
+            {/* Wider, Flattened Glass Strip */}
+            <div className={`bg-black/85 backdrop-blur-3xl px-8 py-3 rounded-[2rem] border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.6)] flex items-center justify-center transition-all duration-500 min-h-[52px] ${!renderText && !isStreaming ? 'opacity-50 grayscale scale-95' : 'opacity-100 scale-100'}`}>
+              
+              <p className={`text-[15px] font-helvetica-thin tracking-wide text-center leading-tight antialiased break-words w-full ${renderText ? 'text-white' : 'text-zinc-500 italic'}`}>
+                {renderText || (isStreaming ? "Calibrating..." : "Standby. Press Speak Now to record.")}
+                {isStreaming && !liveTurnText && (
+                  <span className="ml-3 inline-flex items-center space-x-1">
+                    <span className="w-1.5 h-1.5 bg-lime-400 rounded-full animate-pulse" />
+                    <span className="w-1.5 h-1.5 bg-lime-400/60 rounded-full animate-pulse delay-75" />
+                    <span className="w-1.5 h-1.5 bg-lime-400/30 rounded-full animate-pulse delay-150" />
+                  </span>
+                )}
               </p>
+
+              {/* Sync Status Overlay (Subtle) */}
+              {syncStatus.status === 'syncing' && (
+                <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 flex items-center space-x-2">
+                  <div className="w-2 h-2 border-2 border-lime-500/50 border-t-lime-500 rounded-full animate-spin" />
+                  <span className="text-[9px] uppercase tracking-widest text-lime-500/70 font-black">Persisting to Vault...</span>
+                </div>
+              )}
             </div>
-            {/* Subtle drag handle indicator */}
-            <div className="absolute -top-4 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-white/10 px-3 py-0.5 rounded-full text-[9px] uppercase tracking-tighter text-white/40 pointer-events-none font-bold">
-              Drag Overlay
+            
+            <div className="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-white/5 backdrop-blur px-4 py-1 rounded-full text-[9px] uppercase tracking-tighter text-white/50 pointer-events-none font-bold border border-white/5">
+              Drag Transcription Strip
             </div>
           </div>
         </Draggable>
