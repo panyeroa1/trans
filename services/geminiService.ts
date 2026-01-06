@@ -29,10 +29,24 @@ export class GeminiLiveService {
   ) {
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
     
-    let instruction = "You are a professional real-time transcriptionist and speaker diarization expert. Your task is to transcribe audio and identify speakers. For every segment, detect the speaker and prepend with a tag like [Speaker 0], [Speaker 1], etc. Also detect the emotion and prepend it in uppercase brackets like [JOYFUL], [ANGRY], [SAD], or [NEUTRAL]. Example: '[Speaker 0] [JOYFUL] Good morning!'. If the speaker changes, update the tag immediately. Keep transcription verbatim.";
+    // Enhanced system instruction with specific focus on requested regional dialects and languages
+    let instruction = `You are an elite multi-lingual real-time transcriptionist and speaker diarization expert. 
+Your primary directive is to automatically detect the language being spoken with extreme precision. 
+
+SPECIALIZED FOCUS:
+- French: Support all regional variants (France, Cameroon, Ivory Coast, Canada, Belgium).
+- Dutch: Support Netherlands, Flemish (Belgium), and Surinamese variants.
+- Cameroon Dialects: High-fidelity transcription for Medumba, Ewondo, Duala, Basaa, and Bulu.
+- Ivory Coast Dialects: Accurate detection and transcription for Baoulé, Dioula (Jula), Dan, Anyin, and Senoufo.
+
+Transcribe the audio exactly in its original language and native script. 
+For every segment, detect the speaker and prepend with a tag like [Speaker 0], [Speaker 1], etc. 
+Also detect the emotion and prepend it in uppercase brackets like [JOYFUL], [ANGRY], [SAD], or [NEUTRAL]. 
+Example: '[Speaker 0] [JOYFUL] Bonjour, comment ça va?'. 
+If the speaker changes, update the tag immediately. Keep transcription verbatim.`;
     
     if (translation.enabled) {
-      instruction += ` Additionally, for every segment, you MUST provide the original source text followed by ' -> ' and its translation into ${translation.targetLanguage}. Format: [Speaker N] [EMOTION] Original verbatim text -> Translated text. Ensure the translation follows the source text after the arrow.`;
+      instruction += ` Additionally, for every segment, you MUST provide the original source text (in its detected language/dialect) followed by ' -> ' and its translation into ${translation.targetLanguage}. Format: [Speaker N] [EMOTION] Detected original text -> Translated text. Ensure the translation follows the source text after the arrow.`;
     }
 
     try {
