@@ -18,9 +18,6 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ status: 'idle' | 'syncing' | 'error' | 'success', message?: string }>({ status: 'idle' });
   
-  // Timing for the "initial moments" indicator
-  const [showInitialLang, setShowInitialLang] = useState(false);
-
   const meetingIdRef = useRef('');
   const cumulativeSourceRef = useRef('');
   const sessionRecordIdRef = useRef<string | null>(null);
@@ -120,9 +117,6 @@ const App: React.FC = () => {
       }, sourceLanguage);
       
       setIsStreaming(true);
-      // High visibility for language badge in "initial moments"
-      setShowInitialLang(true);
-      setTimeout(() => setShowInitialLang(false), 8000);
       
     } catch (err) {
       console.error(err);
@@ -137,7 +131,6 @@ const App: React.FC = () => {
     geminiServiceRef.current.stop();
     audioServiceRef.current.stop();
     setIsStreaming(false);
-    setShowInitialLang(false);
     setStream(null);
     setLiveTurnText('');
     sessionRecordIdRef.current = null;
@@ -151,18 +144,6 @@ const App: React.FC = () => {
       {showTranscription && (isStreaming || currentDisplay) && (
         <Draggable initialPos={transPos} onPosChange={setTransPos}>
           <div className="relative group">
-            {/* Language Indicator Pill */}
-            {isStreaming && (
-              <div className={`absolute -top-6 left-1/2 -translate-x-1/2 flex items-center space-x-2 px-3 py-1 rounded-full border border-white/10 backdrop-blur-xl transition-all duration-700 pointer-events-none ${
-                showInitialLang ? 'opacity-100 scale-100 translate-y-0 bg-lime-500/20' : 'opacity-40 scale-90 translate-y-1 bg-black/40'
-              }`}>
-                <div className={`w-1 h-1 rounded-full bg-lime-500 ${showInitialLang ? 'animate-pulse' : ''}`} />
-                <span className="text-[8px] uppercase tracking-[0.3em] font-black text-white/80 whitespace-nowrap">
-                  {sourceLanguage}
-                </span>
-              </div>
-            )}
-
             {currentDisplay ? (
               <div className="bg-black/95 backdrop-blur-3xl px-12 h-[45px] rounded-full border border-white/20 shadow-[0_16px_32px_-8px_rgba(0,0,0,0.8)] min-w-[50vw] max-w-[90vw] ring-1 ring-white/10 transition-all flex items-center justify-center">
                 <p className="text-[16px] font-helvetica-thin text-white tracking-wide text-center leading-none antialiased px-2">
